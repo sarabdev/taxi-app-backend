@@ -29,16 +29,38 @@ export async function calculatePrice({
   const car = await Car.findById(carId);
   if (!car) throw new Error("Car not found");
 
-  // 1️⃣ Base fare (PER MILE)
+  /* --------------------------------------------------
+     1️⃣ Resolve pricePerMile (airport-aware, backward-safe)
+  -------------------------------------------------- */
+
+  let pricePerMile = Number(car.pricePerMile || 0);
+
+  // NEW: if airportRates exist, use a deterministic value
+  if (car.airportRates && Object.keys(car.airportRates).length > 0) {
+    const rates = Object.values(car.airportRates)
+      .map((r) => Number(r.pricePerMile))
+      .filter((v) => Number.isFinite(v) && v > 0);
+
+    // Use lowest configured airport rate (safe default)
+    if (rates.length > 0) {
+      pricePerMile = Math.min(...rates);
+    }
+  }
+
+  /* --------------------------------------------------
+     2️⃣ Base fare
+  -------------------------------------------------- */
   const baseFare =
     Number(car.basePrice || 0) +
-    Number(distanceMiles) * Number(car.pricePerMile || 0);
+    Number(distanceMiles) * pricePerMile;
 
   let total = baseFare;
   let carDiscountAmount = 0;
   let couponDiscountAmount = 0;
 
-  // 2️⃣ Apply car discount (e.g. return trip)
+  /* --------------------------------------------------
+     3️⃣ Car discounts
+  -------------------------------------------------- */
   const applicableCarDiscount = car.discounts?.find(
     (d) =>
       d.isActive &&
@@ -51,8 +73,11 @@ export async function calculatePrice({
     total -= carDiscountAmount;
   }
 
-  // 3️⃣ Apply coupon
+  /* --------------------------------------------------
+     4️⃣ Coupon logic (unchanged)
+  -------------------------------------------------- */
   let coupon = null;
+
   if (couponCode) {
     coupon = await Coupon.findOne({
       code: couponCode.toUpperCase(),
@@ -60,11 +85,9 @@ export async function calculatePrice({
     });
 
     if (!coupon) throw new Error("Invalid coupon");
-
     if (coupon.expiresAt && coupon.expiresAt < new Date()) {
       throw new Error("Coupon expired");
     }
-
     if (coupon.minAmount && total < coupon.minAmount) {
       throw new Error("Coupon minimum amount not met");
     }
@@ -84,14 +107,16 @@ export async function calculatePrice({
     total -= couponDiscountAmount;
   }
 
-  // 4️⃣ Final safety
+  /* --------------------------------------------------
+     5️⃣ Final safety
+  -------------------------------------------------- */
   total = Math.max(0, total);
 
   return {
     breakdown: {
       baseFare,
       distanceMiles,
-      pricePerMile: car.pricePerMile,
+      pricePerMile,
       carDiscountAmount,
       couponDiscountAmount,
     },
@@ -99,6 +124,7 @@ export async function calculatePrice({
     appliedCoupon: coupon ? coupon.code : null,
   };
 }
+
 
 
 

@@ -1,38 +1,37 @@
 import { Car } from "./car.model.js";
 import fs from "fs";
 import { calculateDistanceMiles } from "../pricing/distance.service.js";
-/**
- * Admin: Create car
- */
+
+/* ───────────────────── Admin: Create car ───────────────────── */
 export async function createCar(req, res) {
-  const payload = req.body;
+  try {
+    const payload = req.body;
 
-  if (req.file) {
-    payload.image = `/uploads/cars/${req.file.filename}`;
+    if (req.file) {
+      payload.image = `/uploads/cars/${req.file.filename}`;
+    }
+
+    const car = await Car.create(payload);
+    res.json(car);
+  } catch (e) {
+    res.status(400).json({ message: e.message });
   }
-
-  const car = await Car.create(payload);
-  res.json(car);
 }
 
-/**
- * Admin: List cars
- */
+/* ───────────────────── Admin: List cars ───────────────────── */
 export async function listCars(_, res) {
   const cars = await Car.find().sort({ createdAt: -1 });
   res.json(cars);
 }
 
-/**
- * Admin: Update car
- */
+/* ───────────────────── Admin: Update car ───────────────────── */
 export async function updateCar(req, res) {
   const car = await Car.findById(req.params.id);
   if (!car) {
     return res.status(404).json({ message: "Car not found" });
   }
 
-  // If new image uploaded → remove old one
+  // Replace image if new uploaded
   if (req.file) {
     if (car.image) {
       const oldPath = car.image.replace("/", "");
@@ -47,9 +46,7 @@ export async function updateCar(req, res) {
   res.json(car);
 }
 
-/**
- * Admin: Delete car
- */
+/* ───────────────────── Admin: Delete car ───────────────────── */
 export async function deleteCar(req, res) {
   const car = await Car.findById(req.params.id);
   if (!car) {
@@ -62,19 +59,16 @@ export async function deleteCar(req, res) {
   }
 
   await car.deleteOne();
-
   res.json({ message: "Deleted" });
 }
 
-/**
- * Public: List cars
- */
+/* ───────────────────── Public: List cars (no pricing) ───────────────────── */
 export async function listPublicCars(_, res) {
   const cars = await Car.find();
   res.json(cars);
 }
 
-
+/* ───────────────────── Public: Cars with pricing ───────────────────── */
 export async function listPublicCarsWithPricing(req) {
   const { fromPlaceId, toPlaceId } = req.body;
 
@@ -82,23 +76,30 @@ export async function listPublicCarsWithPricing(req) {
     throw new Error("fromPlaceId and toPlaceId are required");
   }
 
-  // 1️⃣ Calculate distance
+  /* 1️⃣ Distance */
   const distanceMiles = await calculateDistanceMiles({
     fromPlaceId,
     toPlaceId,
   });
 
-  // 2️⃣ Fetch cars
+  /* 2️⃣ Cars */
   const cars = await Car.find();
 
-  // 3️⃣ Apply pricing
+  /* 3️⃣ Pricing */
   const pricedCars = cars.map((car) => {
-    const baseFare =
-      Number(car.basePrice || 0) +
-      Number(distanceMiles) * Number(car.pricePerMile || 0);
+    // 🔴 IMPORTANT CHANGE: airport-based rate
+    const airportRate = car.airportRates?.get(fromPlaceId);
 
-    /* ---------------- ONE WAY ---------------- */
+    if (!airportRate || airportRate.pricePerMile == null) {
+      return null; // skip car if pricing missing for airport
+    }
 
+    const pricePerMile = Number(airportRate.pricePerMile);
+    const basePrice = Number(car.basePrice || 0);
+
+    const baseFare = basePrice + distanceMiles * pricePerMile;
+
+    /* ───────── ONE WAY ───────── */
     let oneWayOriginal = Number(baseFare.toFixed(2));
     let oneWayTotal = oneWayOriginal;
     let oneWayDiscount = 0;
@@ -118,8 +119,7 @@ export async function listPublicCarsWithPricing(req) {
 
     oneWayTotal = Math.max(0, Number(oneWayTotal.toFixed(2)));
 
-    /* ---------------- RETURN ---------------- */
-
+    /* ───────── RETURN ───────── */
     const returnDiscount = car.discounts?.find(
       (d) => d.isActive && d.condition === "RETURN_TRIP"
     );
@@ -131,7 +131,6 @@ export async function listPublicCarsWithPricing(req) {
     let returnDiscountAmount = 0;
 
     if (supportsReturnTrip) {
-      // base return = 2x one-way original
       returnOriginal = Number((oneWayOriginal * 2).toFixed(2));
       returnTotal = returnOriginal;
 
@@ -148,13 +147,12 @@ export async function listPublicCarsWithPricing(req) {
       ...car.toObject(),
       pricing: {
         distanceMiles,
-        pricePerMile: car.pricePerMile,
-        basePrice: car.basePrice,
+        basePrice,
+        pricePerMile,
 
         // ONE WAY
         oneWayFare: oneWayTotal,
-        originalOneWayFare:
-          oneWayDiscount > 0 ? oneWayOriginal : null,
+        originalOneWayFare: oneWayDiscount > 0 ? oneWayOriginal : null,
         oneWayDiscountAmount: oneWayDiscount,
 
         // RETURN
@@ -163,12 +161,12 @@ export async function listPublicCarsWithPricing(req) {
           returnDiscountAmount > 0 ? returnOriginal : null,
         returnDiscountAmount,
       },
-      supportsReturnTrip, // 👈 frontend toggle
+      supportsReturnTrip,
     };
   });
 
   return {
     distanceMiles,
-    cars: pricedCars,
+    cars: pricedCars.filter(Boolean), // remove cars without airport pricing
   };
 }
