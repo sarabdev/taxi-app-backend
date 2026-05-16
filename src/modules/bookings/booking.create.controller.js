@@ -72,6 +72,7 @@ export async function createBooking(req, res) {
       luggage: {
         largeBags23kg: luggage?.largeBags23kg || 0,
         smallBags15kg: luggage?.smallBags15kg || 0,
+        shoulderBags: luggage?.shoulderBags || 0,
         extraLargeItemType: luggage?.extraLargeItemType || "none",
         extraLargeItemNote: luggage?.extraLargeItemNote || "",
       },

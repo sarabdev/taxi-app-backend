@@ -7,6 +7,7 @@ import {
   toggleDriverStatus,
   deleteDriver,
 } from "./driver.controller.js";
+import { uploadDriverDocuments } from "../../middleware/driverLicenseUpload.js";
 import { Driver } from "./driver.model.js";
 
 export const driverRouter = Router();
@@ -18,6 +19,7 @@ driverRouter.post(
   "/",
   auth,
   requireRole("ADMIN"),
+  uploadDriverDocuments.single("licenseDocument"),
   createDriver
 );
 
@@ -31,6 +33,7 @@ driverRouter.get(
   async (_, res) => {
     const drivers = await Driver.find()
       .populate("userId", "email role")
+      .populate("assignedCarId")
       .sort({ createdAt: -1 });
 
     res.json(drivers);

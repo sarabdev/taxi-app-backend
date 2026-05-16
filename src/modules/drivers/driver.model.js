@@ -12,6 +12,28 @@ const DriverSchema = new mongoose.Schema(
     phone: String,
     licenseNumber: String,
     isActive: { type: Boolean, default: true },
+    assignedCarId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Car",
+      default: null,
+    },
+
+    city: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+
+    homeAddress: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+
+    licenseDocument: {
+      type: String,
+      default: "",
+    },
   },
   { timestamps: true }
 );

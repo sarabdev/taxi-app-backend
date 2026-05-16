@@ -1,6 +1,6 @@
 import { Car } from "./car.model.js";
 import fs from "fs";
-import { calculateDistanceMiles } from "../pricing/distance.service.js";
+import { calculateDistanceMiles, detectCityCode } from "../pricing/distance.service.js";
 
 /* ───────────────────── Admin: Create car ───────────────────── */
 export async function createCar(req, res) {
@@ -77,24 +77,23 @@ export async function listPublicCarsWithPricing(req) {
   }
 
   /* 1️⃣ Distance */
-  const distanceMiles = await calculateDistanceMiles({
-    fromPlaceId,
-    toPlaceId,
-  });
+  const distanceMiles = await calculateDistanceMiles({ fromPlaceId, toPlaceId });
 
-  /* 2️⃣ Cars */
+  /* 2️⃣ Detect city code from fromPlaceId */
+  const cityCode = await detectCityCode(fromPlaceId);
+
+  /* 3️⃣ Cars */
   const cars = await Car.find();
 
-  /* 3️⃣ Pricing */
+  /* 4️⃣ Pricing */
   const pricedCars = cars.map((car) => {
-    // 🔴 IMPORTANT CHANGE: airport-based rate
-    const airportRate = car.airportRates?.get(fromPlaceId);
-
-    if (!airportRate || airportRate.pricePerMile == null) {
-      return null; // skip car if pricing missing for airport
+    // Look up rate by city code; fall back to null if city not found or no rate
+    const cityRate = cityCode ? car.airportRates?.get(cityCode) : null;
+    if (!cityRate || cityRate.pricePerMile == null) {
+      return null; // skip car if no rate for this city
     }
 
-    const pricePerMile = Number(airportRate.pricePerMile);
+    const pricePerMile = Number(cityRate.pricePerMile);
     const basePrice = Number(car.basePrice || 0);
 
     const baseFare = basePrice + distanceMiles * pricePerMile;
@@ -157,8 +156,7 @@ export async function listPublicCarsWithPricing(req) {
 
         // RETURN
         roundTripFare: returnTotal,
-        originalRoundTripFare:
-          returnDiscountAmount > 0 ? returnOriginal : null,
+        originalRoundTripFare: returnDiscountAmount > 0 ? returnOriginal : null,
         returnDiscountAmount,
       },
       supportsReturnTrip,
@@ -167,6 +165,6 @@ export async function listPublicCarsWithPricing(req) {
 
   return {
     distanceMiles,
-    cars: pricedCars.filter(Boolean), // remove cars without airport pricing
+    cars: pricedCars.filter(Boolean),
   };
 }

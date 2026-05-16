@@ -46,6 +46,10 @@ const LuggageSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    shoulderBags: {
+      type: Number,
+      default: 0,
+    },
     extraLargeItemType: {
       type: String,
       enum: [

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { calculatePrice } from "./pricing.service.js";
-
+import { calculateDistanceMiles } from "./distance.service.js";
 export const pricingRouter = Router();
 
 pricingRouter.post("/calculate", async (req, res) => {
@@ -23,6 +23,7 @@ pricingRouter.post("/distance", async (req, res) => {
 
     res.json({ distanceMiles });
   } catch (e) {
+    console.log(e)
     res.status(400).json({ message: e.message });
   }
 });
