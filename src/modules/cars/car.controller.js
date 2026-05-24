@@ -88,8 +88,15 @@ export async function listPublicCarsWithPricing(req) {
   /* 4️⃣ Pricing */
   const pricedCars = cars.map((car) => {
     // Look up rate by city code; fall back to null if city not found or no rate
-    const cityRate = cityCode ? car.airportRates?.get(cityCode) : null;
+    const cityRate = cityCode ? car.airportRates?.get(cityCode) : { pricePerMile: 3.00 }; // default to 3.00 if city code not detected
+
+
     if (!cityRate || cityRate.pricePerMile == null) {
+      console.log(
+        "[listPublicCarsWithPricing] Skipping car because no city rate or pricePerMile found:",
+        car.name
+      );
+
       return null; // skip car if no rate for this city
     }
 
