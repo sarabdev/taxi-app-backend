@@ -11,6 +11,10 @@ const PricingSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    returnDistanceMiles: {
+      type: Number,
+      default: 0,
+    },
     pricePerMile: {
       type: Number,
       required: true,
@@ -93,6 +97,37 @@ const FlightSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/* ───────────────────── Return Trip Info ───────────────────── */
+const ReturnTripSchema = new mongoose.Schema(
+  {
+    pickupLocation: {
+      type: String,
+      default: "",
+    },
+    pickupPlaceId: {
+      type: String,
+      default: "",
+    },
+    dropoffLocation: {
+      type: String,
+      default: "",
+    },
+    dropoffPlaceId: {
+      type: String,
+      default: "",
+    },
+    pickupDate: {
+      type: String,
+      default: "",
+    },
+    pickupTime: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: false }
+);
+
 /* ───────────────────── Booking ───────────────────── */
 const BookingSchema = new mongoose.Schema(
   {
@@ -122,6 +157,22 @@ const BookingSchema = new mongoose.Schema(
     dropoffLocation: {
       type: String,
       required: true,
+    },
+    pickupDate: {
+      type: String,
+      default: "",
+    },
+    pickupTime: {
+      type: String,
+      default: "",
+    },
+    isReturnTrip: {
+      type: Boolean,
+      default: false,
+    },
+    returnTrip: {
+      type: ReturnTripSchema,
+      default: null,
     },
 
     /* Car */

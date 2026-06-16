@@ -19,6 +19,7 @@ function applyDiscount(amount, discount) {
 export async function calculatePrice({
   carId,
   distanceMiles,
+  returnDistanceMiles = 0,
   isReturnTrip = false,
   couponCode,
 }) {
@@ -61,16 +62,30 @@ export async function calculatePrice({
   /* --------------------------------------------------
      3️⃣ Car discounts
   -------------------------------------------------- */
-  const applicableCarDiscount = car.discounts?.find(
-    (d) =>
-      d.isActive &&
-      (d.condition === "ALWAYS" ||
-        (d.condition === "RETURN_TRIP" && isReturnTrip))
-  );
+  if (isReturnTrip) {
+    const returnFare =
+      Number(car.basePrice || 0) +
+      Number(returnDistanceMiles || distanceMiles) * pricePerMile;
 
-  if (applicableCarDiscount) {
-    carDiscountAmount = applyDiscount(total, applicableCarDiscount);
-    total -= carDiscountAmount;
+    total = baseFare + returnFare;
+
+    const returnDiscount = car.discounts?.find(
+      (d) => d.isActive && d.condition === "RETURN_TRIP"
+    );
+
+    if (returnDiscount) {
+      carDiscountAmount = applyDiscount(total, returnDiscount);
+      total -= carDiscountAmount;
+    }
+  } else {
+    const alwaysDiscount = car.discounts?.find(
+      (d) => d.isActive && d.condition === "ALWAYS"
+    );
+
+    if (alwaysDiscount) {
+      carDiscountAmount = applyDiscount(total, alwaysDiscount);
+      total -= carDiscountAmount;
+    }
   }
 
   /* --------------------------------------------------
@@ -116,6 +131,7 @@ export async function calculatePrice({
     breakdown: {
       baseFare,
       distanceMiles,
+      returnDistanceMiles: Number(returnDistanceMiles || 0),
       pricePerMile,
       carDiscountAmount,
       couponDiscountAmount,

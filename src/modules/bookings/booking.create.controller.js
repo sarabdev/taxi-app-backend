@@ -13,10 +13,14 @@ export async function createBooking(req, res) {
       // ─── Route ──────────────────────────
       pickupLocation,
       dropoffLocation,
+      pickupDate,
+      pickupTime,
+      returnTrip,
 
       // ─── Car & Pricing Inputs ────────────
       carId,
       distanceMiles,
+      returnDistanceMiles,
       isReturnTrip,
       couponCode,
 
@@ -47,6 +51,7 @@ export async function createBooking(req, res) {
     const pricingResult = await calculatePrice({
       carId,
       distanceMiles,
+      returnDistanceMiles,
       isReturnTrip,
       couponCode,
     });
@@ -61,6 +66,19 @@ export async function createBooking(req, res) {
       // Route
       pickupLocation,
       dropoffLocation,
+      pickupDate: pickupDate || "",
+      pickupTime: pickupTime || "",
+      isReturnTrip: !!isReturnTrip,
+      returnTrip: isReturnTrip
+        ? {
+            pickupLocation: returnTrip?.pickupLocation || "",
+            pickupPlaceId: returnTrip?.pickupPlaceId || "",
+            dropoffLocation: returnTrip?.dropoffLocation || "",
+            dropoffPlaceId: returnTrip?.dropoffPlaceId || "",
+            pickupDate: returnTrip?.pickupDate || "",
+            pickupTime: returnTrip?.pickupTime || "",
+          }
+        : null,
 
       // Car
       carId,
@@ -89,6 +107,7 @@ export async function createBooking(req, res) {
       pricing: {
         baseFare: pricingResult.breakdown.baseFare,
         distanceMiles,
+        returnDistanceMiles: pricingResult.breakdown.returnDistanceMiles,
         pricePerMile: pricingResult.breakdown.pricePerMile,
         carDiscountAmount: pricingResult.breakdown.carDiscountAmount,
         couponDiscountAmount: pricingResult.breakdown.couponDiscountAmount,
