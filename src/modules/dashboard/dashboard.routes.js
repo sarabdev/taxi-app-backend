@@ -2,8 +2,11 @@ import { Router } from "express";
 import { auth } from "../../middleware/auth.js";
 import { requireRole } from "../../middleware/requireRole.js";
 import { Booking } from "../bookings/booking.model.js";
-import { WalletTransaction } from "../wallet/wallet.model.js";
 import { Driver } from "../drivers/driver.model.js";
+import {
+  getDriverAccounting,
+  getPlatformAccounting,
+} from "../accounting/accounting.service.js";
 export const dashboardRouter = Router();
 
 dashboardRouter.get(
@@ -37,85 +40,19 @@ dashboardRouter.get(
         }),
       ]);
 
-      /* ─────────────────────────────
-       * REVENUE (LOCKED PRICING)
-       * ───────────────────────────── */
-      const revenueAgg = await Booking.aggregate([
-        { $match: { status: "COMPLETED" } },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: "$pricing.totalFare" },
-          },
-        },
-      ]);
-
-      const totalRevenue = revenueAgg[0]?.total || 0;
-
-      /* ─────────────────────────────
-       * DRIVER EARNINGS (CREDIT)
-       * ───────────────────────────── */
-      const earningsAgg = await WalletTransaction.aggregate([
-        { $match: { type: "CREDIT" } },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: "$amount" },
-          },
-        },
-      ]);
-
-      const totalDriverEarnings = earningsAgg[0]?.total || 0;
-
-      /* ─────────────────────────────
-       * PENDING PAYOUTS (WALLET BALANCE)
-       * ───────────────────────────── */
-      const walletAgg = await WalletTransaction.aggregate([
-        {
-          $group: {
-            _id: "$driverId",
-            balance: {
-              $sum: {
-                $cond: [
-                  { $eq: ["$type", "CREDIT"] },
-                  "$amount",
-                  { $multiply: ["$amount", -1] },
-                ],
-              },
-            },
-          },
-        },
-        { $match: { balance: { $gt: 0 } } },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: "$balance" },
-          },
-        },
-      ]);
-
-      const pendingPayouts = walletAgg[0]?.total || 0;
-
-      /* ─────────────────────────────
-       * ADMIN EARNING (PLATFORM CUT)
-       * ─────────────────────────────
-       * Assumption: drivers get 80%
-       * Admin keeps 20%
-       */
-      const adminEarnings = Number(
-        (totalRevenue - totalDriverEarnings).toFixed(2)
-      );
+      const accounting = await getPlatformAccounting();
 
       res.json({
         bookingsToday,
         completedBookings,
         pendingBookings,
 
-        totalRevenue: Number(totalRevenue.toFixed(2)),
-        totalDriverEarnings: Number(totalDriverEarnings.toFixed(2)),
-        adminEarnings,
-
-        pendingPayouts: Number(pendingPayouts.toFixed(2)),
+        totalRevenue: accounting.grossRevenue,
+        totalDriverEarnings: accounting.driverEarnings,
+        totalDriverPaid: accounting.driverPaid,
+        adminEarnings: accounting.platformEarning,
+        pendingPayouts: accounting.pendingPayouts,
+        unallocatedDriverEarnings: accounting.unallocatedDriverEarnings,
       });
     } catch (err) {
       console.error("Dashboard analytics error:", err);
@@ -171,38 +108,15 @@ dashboardRouter.get(
         }),
       ]);
 
-      /* ─────────────────────────────
-       * WALLET
-       * ───────────────────────────── */
-      const walletAgg = await WalletTransaction.aggregate([
-        { $match: { driverId: driver._id } },
-        {
-          $group: {
-            _id: null,
-            earned: {
-              $sum: {
-                $cond: [{ $eq: ["$type", "CREDIT"] }, "$amount", 0],
-              },
-            },
-            paid: {
-              $sum: {
-                $cond: [{ $eq: ["$type", "DEBIT"] }, "$amount", 0],
-              },
-            },
-          },
-        },
-      ]);
-
-      const earned = walletAgg[0]?.earned || 0;
-      const paid = walletAgg[0]?.paid || 0;
+      const accounting = await getDriverAccounting(driver._id);
 
       res.json({
         assignedBookings,
         completedBookings,
         bookingsToday,
-        totalEarned: Number(earned.toFixed(2)),
-        totalPaid: Number(paid.toFixed(2)),
-        balance: Number((earned - paid).toFixed(2)),
+        totalEarned: accounting.earned,
+        totalPaid: accounting.paid,
+        balance: accounting.balance,
       });
     } catch (err) {
       console.error("Driver dashboard error:", err);

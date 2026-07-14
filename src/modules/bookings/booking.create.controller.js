@@ -1,74 +1,121 @@
+import Stripe from "stripe";
 import { Booking } from "./booking.model.js";
-import { calculatePrice } from "../pricing/pricing.service.js";
-import { WalletTransaction } from "../wallet/wallet.model.js";
+import { sendMail } from "../../utils/mailer.js";
+import { bookingConfirmedEmail } from "../../emails/bookingConfirmed.js";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+function metadataNumber(metadata, key) {
+  const value = Number(metadata[key] || 0);
+  if (!Number.isFinite(value)) {
+    throw new Error("Invalid payment pricing snapshot");
+  }
+  return value;
+}
+
+function assertPaymentMatchesBooking(paymentIntent, request) {
+  if (paymentIntent.status !== "succeeded") {
+    throw new Error("Payment has not succeeded");
+  }
+  if (paymentIntent.currency !== "gbp") {
+    throw new Error("Invalid payment currency");
+  }
+
+  const metadata = paymentIntent.metadata || {};
+  const expectedReturn = request.isReturnTrip ? "true" : "false";
+  const requestCoupon = String(request.couponCode || "").toUpperCase();
+  const matches =
+    metadata.pricingVersion === "2" &&
+    metadata.carId === String(request.carId) &&
+    metadata.fromPlaceId === String(request.fromPlaceId || "") &&
+    metadata.toPlaceId === String(request.toPlaceId || "") &&
+    metadata.returnFromPlaceId === String(request.returnFromPlaceId || "") &&
+    metadata.returnToPlaceId === String(request.returnToPlaceId || "") &&
+    metadata.isReturnTrip === expectedReturn &&
+    metadata.couponCode === requestCoupon;
+
+  if (!matches) {
+    throw new Error("Payment does not match this booking");
+  }
+
+  const totalFare = metadataNumber(metadata, "totalFare");
+  if (paymentIntent.amount_received !== Math.round(totalFare * 100)) {
+    throw new Error("Paid amount does not match booking total");
+  }
+
+  return {
+    basePrice: metadataNumber(metadata, "basePrice"),
+    baseFare: metadataNumber(metadata, "baseFare"),
+    returnBaseFare: metadataNumber(metadata, "returnBaseFare"),
+    distanceMiles: metadataNumber(metadata, "distanceMiles"),
+    returnDistanceMiles: metadataNumber(metadata, "returnDistanceMiles"),
+    pricePerMile: metadataNumber(metadata, "pricePerMile"),
+    returnPricePerMile: metadataNumber(metadata, "returnPricePerMile"),
+    carDiscountAmount: metadataNumber(metadata, "carDiscountAmount"),
+    couponDiscountAmount: metadataNumber(metadata, "couponDiscountAmount"),
+    totalFare,
+    appliedCoupon: metadata.appliedCoupon || null,
+  };
+}
 
 export async function createBooking(req, res) {
   try {
     const {
-      // ─── Customer ───────────────────────
       customerName,
       customerEmail,
       customerPhone,
-
-      // ─── Route ──────────────────────────
       pickupLocation,
+      pickupPlaceId,
       dropoffLocation,
+      dropoffPlaceId,
       pickupDate,
       pickupTime,
       returnTrip,
-
-      // ─── Car & Pricing Inputs ────────────
       carId,
-      distanceMiles,
-      returnDistanceMiles,
       isReturnTrip,
       couponCode,
-
-      // ─── Passenger Info ─────────────────
+      paymentIntentId,
       passengers,
-
-      // ─── Luggage ────────────────────────
       luggage,
-
-      // ─── Flight Info ────────────────────
       flight,
     } = req.body;
 
-    /* ───────────────────── Basic Validation ───────────────────── */
-    if (!carId || !distanceMiles) {
+    if (!carId || !pickupPlaceId || !dropoffPlaceId || !paymentIntentId) {
       return res.status(400).json({
-        message: "Missing required fields: carId or distanceMiles",
+        message: "Missing car, route, or payment information",
       });
     }
-
     if (!customerName || !customerEmail || !customerPhone) {
-      return res.status(400).json({
-        message: "Missing customer information",
-      });
+      return res.status(400).json({ message: "Missing customer information" });
     }
 
-    /* ───────────────────── 🔐 Price Calculation (LOCKED) ───────────────────── */
-    const pricingResult = await calculatePrice({
+    const existingBooking = await Booking.findOne({ paymentIntentId });
+    if (existingBooking) {
+      return res.json({ booking: existingBooking });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const pricing = assertPaymentMatchesBooking(paymentIntent, {
       carId,
-      distanceMiles,
-      returnDistanceMiles,
-      isReturnTrip,
+      fromPlaceId: pickupPlaceId,
+      toPlaceId: dropoffPlaceId,
+      returnFromPlaceId: isReturnTrip ? returnTrip?.pickupPlaceId : "",
+      returnToPlaceId: isReturnTrip ? returnTrip?.dropoffPlaceId : "",
+      isReturnTrip: Boolean(isReturnTrip),
       couponCode,
     });
 
-    /* ───────────────────── Create Booking ───────────────────── */
     const booking = await Booking.create({
-      // Customer
       customerName,
       customerEmail,
       customerPhone,
-
-      // Route
       pickupLocation,
+      pickupPlaceId,
       dropoffLocation,
+      dropoffPlaceId,
       pickupDate: pickupDate || "",
       pickupTime: pickupTime || "",
-      isReturnTrip: !!isReturnTrip,
+      isReturnTrip: Boolean(isReturnTrip),
       returnTrip: isReturnTrip
         ? {
             pickupLocation: returnTrip?.pickupLocation || "",
@@ -79,14 +126,9 @@ export async function createBooking(req, res) {
             pickupTime: returnTrip?.pickupTime || "",
           }
         : null,
-
-      // Car
       carId,
-
-      // Passenger
+      paymentIntentId,
       passengers: passengers || 1,
-
-      // Luggage
       luggage: {
         largeBags23kg: luggage?.largeBags23kg || 0,
         smallBags15kg: luggage?.smallBags15kg || 0,
@@ -94,40 +136,24 @@ export async function createBooking(req, res) {
         extraLargeItemType: luggage?.extraLargeItemType || "none",
         extraLargeItemNote: luggage?.extraLargeItemNote || "",
       },
-
-      // Flight
       flight: {
         flightNumber: flight?.flightNumber || "",
         arrivingFrom: flight?.arrivingFrom || "",
         arrivalDateTime: flight?.arrivalDateTime || null,
-        meetAndGreet: !!flight?.meetAndGreet,
+        meetAndGreet: Boolean(flight?.meetAndGreet),
       },
-
-      // 🔒 Locked Pricing Snapshot
-      pricing: {
-        baseFare: pricingResult.breakdown.baseFare,
-        distanceMiles,
-        returnDistanceMiles: pricingResult.breakdown.returnDistanceMiles,
-        pricePerMile: pricingResult.breakdown.pricePerMile,
-        carDiscountAmount: pricingResult.breakdown.carDiscountAmount,
-        couponDiscountAmount: pricingResult.breakdown.couponDiscountAmount,
-        totalFare: pricingResult.totalFare,
-        appliedCoupon: pricingResult.appliedCoupon,
-      },
+      pricing,
     });
 
-    /* ───────────────────── Wallet Ledger Entry ───────────────────── */
-    await WalletTransaction.create({
-      driverId: null, // no driver assigned yet
-      type: "CREDIT",
-      amount: booking.pricing.totalFare,
-      referenceType: "BOOKING",
-      referenceId: booking._id,
-      note: "Customer payment received",
+    const confirmation = bookingConfirmedEmail({ booking });
+    await sendMail({
+      to: booking.customerEmail,
+      subject: confirmation.subject,
+      html: confirmation.html,
     });
 
     res.json({ booking });
-  } catch (e) {
-    res.status(400).json({ message: e.message });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 }

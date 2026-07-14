@@ -34,6 +34,17 @@ const DriverSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+
+    payoutLockToken: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    payoutLockExpiresAt: {
+      type: Date,
+      default: null,
+      select: false,
+    },
   },
   { timestamps: true }
 );

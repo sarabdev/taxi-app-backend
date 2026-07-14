@@ -1,31 +1,82 @@
 import Stripe from "stripe";
+import { calculatePrice } from "../pricing/pricing.service.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-/**
- * Create Stripe PaymentIntent
- * This ONLY creates intent — no booking here
- */
+function metadataValue(value) {
+  return value == null ? "" : String(value);
+}
+
 export async function createPaymentIntent(req, res) {
   try {
-    const { amount, currency = "gbp" } = req.body;
+    const {
+      carId,
+      fromPlaceId,
+      toPlaceId,
+      returnFromPlaceId,
+      returnToPlaceId,
+      isReturnTrip = false,
+      couponCode,
+    } = req.body;
 
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: "Invalid amount" });
+    const pricing = await calculatePrice({
+      carId,
+      fromPlaceId,
+      toPlaceId,
+      returnFromPlaceId,
+      returnToPlaceId,
+      isReturnTrip,
+      couponCode,
+    });
+
+    if (pricing.totalFare <= 0) {
+      return res.status(400).json({ message: "Invalid booking total" });
     }
 
-    // Stripe expects smallest unit (pence)
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
-      currency,
+      amount: Math.round(pricing.totalFare * 100),
+      currency: "gbp",
       automatic_payment_methods: { enabled: true },
+      metadata: {
+        pricingVersion: "2",
+        carId: metadataValue(carId),
+        fromPlaceId: metadataValue(fromPlaceId),
+        toPlaceId: metadataValue(toPlaceId),
+        returnFromPlaceId: metadataValue(returnFromPlaceId),
+        returnToPlaceId: metadataValue(returnToPlaceId),
+        isReturnTrip: metadataValue(Boolean(isReturnTrip)),
+        couponCode: metadataValue(couponCode).toUpperCase(),
+        basePrice: metadataValue(pricing.breakdown.basePrice),
+        baseFare: metadataValue(pricing.breakdown.baseFare),
+        returnBaseFare: metadataValue(pricing.breakdown.returnBaseFare),
+        distanceMiles: metadataValue(pricing.breakdown.distanceMiles),
+        returnDistanceMiles: metadataValue(
+          pricing.breakdown.returnDistanceMiles
+        ),
+        pricePerMile: metadataValue(pricing.breakdown.pricePerMile),
+        returnPricePerMile: metadataValue(
+          pricing.breakdown.returnPricePerMile
+        ),
+        carDiscountAmount: metadataValue(
+          pricing.breakdown.carDiscountAmount
+        ),
+        couponDiscountAmount: metadataValue(
+          pricing.breakdown.couponDiscountAmount
+        ),
+        totalFare: metadataValue(pricing.totalFare),
+        appliedCoupon: metadataValue(pricing.appliedCoupon),
+      },
     });
 
     res.json({
       clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      pricing,
     });
-  } catch (e) {
-    console.error("Stripe error:", e);
-    res.status(500).json({ message: "Payment initialization failed" });
+  } catch (error) {
+    console.error("Stripe error:", error);
+    res.status(400).json({
+      message: error.message || "Payment initialization failed",
+    });
   }
 }

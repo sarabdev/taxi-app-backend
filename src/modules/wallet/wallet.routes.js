@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { auth } from "../../middleware/auth.js";
 import { requireRole } from "../../middleware/requireRole.js";
-import { getWalletBalance } from "./wallet.service.js";
 import { Driver } from "../drivers/driver.model.js";
-import { WalletTransaction } from "./wallet.model.js";
+import {
+  buildDriverLedger,
+  getDriverAccounting,
+} from "../accounting/accounting.service.js";
 
 export const walletRouter = Router();
 
@@ -15,11 +17,11 @@ walletRouter.get(
     const driver = await Driver.findOne({ userId: req.user.id });
     if (!driver) return res.json({ balance: 0, transactions: [] });
 
-    const balance = await getWalletBalance(driver._id);
-    const transactions = await WalletTransaction.find({
-      driverId: driver._id,
-    }).sort({ createdAt: -1 });
+    const [accounting, transactions] = await Promise.all([
+      getDriverAccounting(driver._id),
+      buildDriverLedger(driver._id),
+    ]);
 
-    res.json({ balance, transactions });
+    res.json({ balance: accounting.balance, transactions });
   }
 );

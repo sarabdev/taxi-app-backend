@@ -20,6 +20,13 @@ const DiscountSchema = new mongoose.Schema(
     value: {
       type: Number,
       required: true,
+      min: 0,
+      validate: {
+        validator(value) {
+          return this.type !== "PERCENTAGE" || value <= 100;
+        },
+        message: "Percentage discount cannot exceed 100",
+      },
     },
     condition: {
       type: String,
@@ -46,7 +53,7 @@ const AirportRateSchema = new mongoose.Schema(
     pricePerMile: {
       type: Number,
       required: true,
-      min: 0,
+      min: 0.01,
     },
   },
   { _id: false }

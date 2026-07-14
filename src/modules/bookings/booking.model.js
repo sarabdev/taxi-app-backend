@@ -3,9 +3,17 @@ import mongoose from "mongoose";
 /* ───────────────────── Pricing (LOCKED snapshot) ───────────────────── */
 const PricingSchema = new mongoose.Schema(
   {
+    basePrice: {
+      type: Number,
+      default: 0,
+    },
     baseFare: {
       type: Number,
       required: true,
+    },
+    returnBaseFare: {
+      type: Number,
+      default: 0,
     },
     distanceMiles: {
       type: Number,
@@ -18,6 +26,10 @@ const PricingSchema = new mongoose.Schema(
     pricePerMile: {
       type: Number,
       required: true,
+    },
+    returnPricePerMile: {
+      type: Number,
+      default: 0,
     },
     carDiscountAmount: {
       type: Number,
@@ -154,9 +166,17 @@ const BookingSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    pickupPlaceId: {
+      type: String,
+      default: "",
+    },
     dropoffLocation: {
       type: String,
       required: true,
+    },
+    dropoffPlaceId: {
+      type: String,
+      default: "",
     },
     pickupDate: {
       type: String,
@@ -180,6 +200,12 @@ const BookingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Car",
       required: true,
+    },
+
+    paymentIntentId: {
+      type: String,
+      unique: true,
+      sparse: true,
     },
 
     /* Passenger */
@@ -217,6 +243,11 @@ const BookingSchema = new mongoose.Schema(
     completionNote: {
       type: String,
       default: "",
+    },
+
+    completedAt: {
+      type: Date,
+      default: null,
     },
 
     /* 🔒 Locked pricing */

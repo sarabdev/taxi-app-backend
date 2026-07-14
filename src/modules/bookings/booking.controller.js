@@ -1,115 +1,117 @@
 import { Booking } from "./booking.model.js";
 import { Driver } from "../drivers/driver.model.js";
 import { User } from "../users/user.model.js";
-import { creditBookingOnce } from "../wallet/wallet.service.js";
 import { logActivity } from "../activity/activity.service.js";
 import { sendMail } from "../../utils/mailer.js";
 import { driverAssignedEmail } from "../../emails/driverAssigned.js";
 import { bookingCompletedEmail } from "../../emails/bookingCompleted.js";
-import { WalletTransaction } from "../wallet/wallet.model.js";
-/**
- * Admin: list all bookings
- */
+import { customerBookingCompletedEmail } from "../../emails/customerBookingCompleted.js";
+import { adminBookingCompletedEmail } from "../../emails/adminBookingCompleted.js";
+import {
+  driverShareForFare,
+  platformShareForFare,
+} from "../accounting/accounting.service.js";
+
+const BOOKING_STATUSES = new Set([
+  "PENDING",
+  "ASSIGNED",
+  "COMPLETED",
+  "CANCELLED",
+]);
+
+function populatedBooking(id) {
+  return Booking.findById(id)
+    .populate("carId")
+    .populate({
+      path: "assignedDriverId",
+      populate: { path: "userId", select: "email role" },
+    });
+}
+
+/** Admin: list all bookings. */
 export async function listBookings(req, res) {
   const bookings = await Booking.find()
     .populate({
       path: "assignedDriverId",
-      populate: {
-        path: "userId",
-        select: "email",
-      },
+      populate: { path: "userId", select: "email" },
     })
     .sort({ createdAt: -1 });
 
   res.json(bookings);
 }
 
-
-/**
- * Admin: assign driver to booking
- */
+/** Admin: assign a driver to a non-completed booking. */
 export async function assignDriver(req, res) {
   const { driverId } = req.body;
+  const driver = await Driver.findById(driverId).populate("userId", "email");
 
-  const booking = await Booking.findById(req.params.id);
+  if (!driver) {
+    return res.status(404).json({ message: "Driver not found" });
+  }
+
+  const booking = await Booking.findOneAndUpdate(
+    { _id: req.params.id, status: { $ne: "COMPLETED" } },
+    { $set: { assignedDriverId: driver._id, status: "ASSIGNED" } },
+    { new: true, runValidators: true }
+  );
+
   if (!booking) {
-    return res.status(404).json({ message: "Booking not found" });
-  }
-
-  booking.assignedDriverId = driverId;
-  booking.status = "ASSIGNED";
-  await booking.save();
-
-  // 🧾 Activity log
-  await logActivity({
-    entityType: "BOOKING",
-    entityId: booking._id,
-    action: "ASSIGNED",
-    performedByRole: "ADMIN",
-    performedById: req.user.id,
-    note: `Assigned driver ${driverId}`,
-  });
-
-  await WalletTransaction.updateOne(
-  {
-    referenceType: "BOOKING",
-    referenceId: booking._id,
-    driverId: null,
-  },
-  {
-    $set: { driverId: driverId },
-  }
-);
-
-  // 📧 Email driver (non-blocking)
-  const driverUser = await User.findById(driverId);
-  if (driverUser?.email) {
-    const email = driverAssignedEmail({ booking });
-    await sendMail({
-      to: driverUser.email,
-      subject: email.subject,
-      html: email.html,
+    const exists = await Booking.exists({ _id: req.params.id });
+    return res.status(exists ? 409 : 404).json({
+      message: exists
+        ? "A completed booking cannot be reassigned"
+        : "Booking not found",
     });
+  }
+
+  try {
+    await logActivity({
+      entityType: "BOOKING",
+      entityId: booking._id,
+      action: "ASSIGNED",
+      performedByRole: "ADMIN",
+      performedById: req.user.id,
+      note: `Assigned driver ${driver._id}`,
+    });
+  } catch (error) {
+    console.error("Assignment activity log failed:", error);
+  }
+
+  if (driver.userId?.email) {
+    const email = driverAssignedEmail({ booking });
+    try {
+      await sendMail({
+        to: driver.userId.email,
+        subject: email.subject,
+        html: email.html,
+      });
+    } catch (error) {
+      console.error("Driver assignment email failed:", error);
+    }
   }
 
   res.json(booking);
 }
 
 /**
- * Admin / Driver: update booking status
- */
-/**
- * Update booking status
- * - DRIVER can only COMPLETE their own booking
- * - ADMIN can update any status
- * - COMPLETED triggers wallet credit ONCE
+ * Admin / driver status update.
+ * COMPLETED is terminal because it recognizes revenue and driver earnings.
  */
 export async function updateStatus(req, res) {
   const { status, note } = req.body;
-const booking = await Booking.findById(req.params.id)
-  .populate("carId") // car details
-  .populate({
-    path: "assignedDriverId",
-    populate: {
-      path: "userId",
-      select: "email role",
-    },
-  });
-console.log(booking) 
-  if (!booking) {
+  if (!BOOKING_STATUSES.has(status)) {
+    return res.status(400).json({ message: "Invalid booking status" });
+  }
+
+  const current = await populatedBooking(req.params.id);
+  if (!current) {
     return res.status(404).json({ message: "Booking not found" });
   }
 
-  /* ============================
-   * 🔒 DRIVER ROLE GUARD
-   * ============================ */
   if (req.user.role === "DRIVER") {
-    console.log(booking.assignedDriverId?.toString())
-    console.log(req.user.id)
-    if (booking.assignedDriverId?.userId?._id?.toString() !== req.user.id) {
+    if (current.assignedDriverId?.userId?._id?.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not your booking" });
     }
-
     if (status !== "COMPLETED") {
       return res
         .status(403)
@@ -117,91 +119,118 @@ console.log(booking)
     }
   }
 
-  /* ============================
-   * 🛑 IDEMPOTENCY GUARD
-   * ============================ */
-  // if (booking.status === "COMPLETED") {
-  //   return res.json(booking);
-  // }
-
-  booking.status = status;
-
-  /* ============================
-   * 💰 CREDIT DRIVER ON COMPLETION
-   * ============================ */
-  let driverShare = 0;
-
-  if (status === "COMPLETED") {
-    booking.completionNote = note || "";
-
-    if (!booking.assignedDriverId) {
-      return res
-        .status(400)
-        .json({ message: "Cannot complete booking without driver" });
-    }
-
-    const driver = await Driver.findOne({
-      _id: booking.assignedDriverId,
+  if (current.status === "COMPLETED") {
+    if (status === "COMPLETED") return res.json(current);
+    return res.status(409).json({
+      message: "Completed bookings are locked and cannot change status",
     });
-      console.log("I am here2")
-
-    if (driver) {
-      const totalFare = Number(booking.pricing?.totalFare || 0);
-      driverShare = Number((totalFare * 0.8).toFixed(2)); // 80%
-
-      // 🔒 WALLET IDEMPOTENCY CHECK
-      const alreadyCredited = await WalletTransaction.findOne({
-        referenceType: "BOOKING",
-        referenceId: booking._id,
-      });
-
-      console.log("I am here", alreadyCredited)
-
-      if (!alreadyCredited) {
-        await WalletTransaction.create({
-          driverId: driver._id,
-          type: "CREDIT",
-          amount: driverShare,
-          referenceType: "BOOKING",
-          referenceId: booking._id,
-          note: "Booking completed payout",
-        });
-      }
-    }
   }
 
-  await booking.save();
+  if (status === "COMPLETED" && !current.assignedDriverId) {
+    return res
+      .status(400)
+      .json({ message: "Cannot complete booking without a driver" });
+  }
 
-  /* ============================
-   * 🧾 ACTIVITY LOG
-   * ============================ */
-  await logActivity({
-    entityType: "BOOKING",
-    entityId: booking._id,
-    action: status,
-    performedByRole: req.user.role,
-    performedById: req.user.id,
-    note: note || "",
-  });
+  if (status === "ASSIGNED" && !current.assignedDriverId) {
+    return res
+      .status(400)
+      .json({ message: "Assign a driver before using ASSIGNED status" });
+  }
 
-  /* ============================
-   * 📧 EMAIL DRIVER
-   * ============================ */
-  if (status === "COMPLETED" && booking.assignedDriverId) {
-    const driverUser = await User.findById(booking.assignedDriverId);
+  const update = {
+    status,
+    completionNote: status === "COMPLETED" ? note || "" : "",
+    completedAt: status === "COMPLETED" ? new Date() : null,
+  };
 
-    if (driverUser?.email) {
-      const email = bookingCompletedEmail({
-        booking,
-        driverShare,
-      });
+  let booking = await Booking.findOneAndUpdate(
+    {
+      _id: current._id,
+      status: current.status,
+      assignedDriverId: current.assignedDriverId?._id || null,
+    },
+    { $set: update },
+    { new: true, runValidators: true }
+  );
 
-      await sendMail({
-        to: driverUser.email,
-        subject: email.subject,
-        html: email.html,
-      });
+  if (!booking) {
+    booking = await populatedBooking(current._id);
+    if (booking?.status === "COMPLETED" && status === "COMPLETED") {
+      return res.json(booking);
     }
+    return res.status(409).json({
+      message: "Booking changed while updating. Refresh and try again.",
+    });
+  }
+
+  try {
+    await logActivity({
+      entityType: "BOOKING",
+      entityId: booking._id,
+      action: status,
+      performedByRole: req.user.role,
+      performedById: req.user.id,
+      note: note || "",
+    });
+  } catch (error) {
+    console.error("Booking status activity log failed:", error);
+  }
+
+  if (status === "COMPLETED") {
+    booking = await populatedBooking(booking._id);
+    const driverShare = driverShareForFare(booking.pricing?.totalFare);
+    const platformShare = platformShareForFare(booking.pricing?.totalFare);
+    const driverEmail = booking.assignedDriverId?.userId?.email;
+    const emails = [];
+
+    if (driverEmail) {
+      const email = bookingCompletedEmail({ booking, driverShare });
+      emails.push(
+        sendMail({
+          to: driverEmail,
+          subject: email.subject,
+          html: email.html,
+        })
+      );
+    }
+
+    if (booking.customerEmail) {
+      const email = customerBookingCompletedEmail({ booking });
+      emails.push(
+        sendMail({
+          to: booking.customerEmail,
+          subject: email.subject,
+          html: email.html,
+        })
+      );
+    }
+
+    let adminEmails = [];
+    try {
+      adminEmails = await User.find({
+        role: "ADMIN",
+        isActive: true,
+      }).distinct("email");
+    } catch (error) {
+      console.error("Unable to load admin email recipients:", error);
+    }
+    const adminEmail = adminBookingCompletedEmail({
+      booking,
+      driverShare,
+      platformShare,
+    });
+    for (const address of adminEmails) {
+      emails.push(
+        sendMail({
+          to: address,
+          subject: adminEmail.subject,
+          html: adminEmail.html,
+        })
+      );
+    }
+
+    await Promise.all(emails);
   }
 
   res.json(booking);

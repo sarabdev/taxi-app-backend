@@ -22,6 +22,14 @@ const PayoutSchema = new mongoose.Schema(
       default: "PAID",
     },
 
+    requestId: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      unique: true,
+      sparse: true,
+    },
+
     reference: String, // e.g. bank transfer ref
     note: String,
   },

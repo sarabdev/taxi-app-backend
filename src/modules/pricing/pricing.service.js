@@ -1,173 +1,206 @@
 import { Car } from "../cars/car.model.js";
-import { Coupon } from "../coupons/coupon.model.js";
-import { calculateDistanceMiles } from "./distance.service.js";
+import { findValidCoupon } from "../coupons/coupon.service.js";
+import { calculateDistanceMiles, detectCityCode } from "./distance.service.js";
+
+function toMoney(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
 
 function applyDiscount(amount, discount) {
-  if (!discount || !discount.isActive) return 0;
+  if (!discount?.isActive || amount <= 0) return 0;
 
-  if (discount.type === "PERCENTAGE") {
-    return (amount * discount.value) / 100;
+  const value = Number(discount.value);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+
+  const discountAmount =
+    discount.type === "PERCENTAGE"
+      ? (amount * Math.min(value, 100)) / 100
+      : discount.type === "FIXED"
+        ? value
+        : 0;
+
+  return toMoney(Math.min(amount, discountAmount));
+}
+
+function getConfiguredRates(car) {
+  const entries = car.airportRates instanceof Map
+    ? [...car.airportRates.entries()]
+    : Object.entries(car.airportRates || {});
+
+  return entries
+    .map(([code, rate]) => [code, Number(rate?.pricePerMile)])
+    .filter(([, rate]) => Number.isFinite(rate) && rate > 0);
+}
+
+export function resolvePricePerMile(car, cityCode) {
+  const configuredRates = getConfiguredRates(car);
+  const selectedRate = configuredRates.find(([code]) => code === cityCode)?.[1];
+
+  if (selectedRate != null) return selectedRate;
+
+  const legacyRate = Number(car.pricePerMile);
+  if (Number.isFinite(legacyRate) && legacyRate > 0) return legacyRate;
+
+  if (configuredRates.length > 0) {
+    return Math.min(...configuredRates.map(([, rate]) => rate));
   }
 
-  if (discount.type === "FIXED") {
-    return discount.value;
+  throw new Error(`No per-mile rate configured for ${car.name || "this car"}`);
+}
+
+export function calculateFare({
+  car,
+  distanceMiles,
+  pricePerMile,
+  returnDistanceMiles = 0,
+  returnPricePerMile = 0,
+  isReturnTrip = false,
+  coupon = null,
+}) {
+  const outboundDistance = Number(distanceMiles);
+  const outboundRate = Number(pricePerMile);
+  const basePrice = Number(car.basePrice || 0);
+
+  if (
+    !Number.isFinite(outboundDistance) ||
+    outboundDistance <= 0 ||
+    !Number.isFinite(outboundRate) ||
+    outboundRate <= 0 ||
+    !Number.isFinite(basePrice) ||
+    basePrice < 0
+  ) {
+    throw new Error("Invalid pricing input");
   }
 
-  return 0;
+  const baseFare = toMoney(basePrice + outboundDistance * outboundRate);
+  let returnBaseFare = 0;
+  let total = baseFare;
+  let carDiscountAmount = 0;
+
+  if (isReturnTrip) {
+    const inboundDistance = Number(returnDistanceMiles);
+    const inboundRate = Number(returnPricePerMile);
+
+    if (
+      !Number.isFinite(inboundDistance) ||
+      inboundDistance <= 0 ||
+      !Number.isFinite(inboundRate) ||
+      inboundRate <= 0
+    ) {
+      throw new Error("Invalid return pricing input");
+    }
+
+    returnBaseFare = toMoney(basePrice + inboundDistance * inboundRate);
+    total = toMoney(baseFare + returnBaseFare);
+
+    const returnDiscount = car.discounts?.find(
+      (discount) => discount.isActive && discount.condition === "RETURN_TRIP"
+    );
+
+    carDiscountAmount = applyDiscount(total, returnDiscount);
+  } else {
+    const alwaysDiscount = car.discounts?.find(
+      (discount) => discount.isActive && discount.condition === "ALWAYS"
+    );
+
+    carDiscountAmount = applyDiscount(total, alwaysDiscount);
+  }
+
+  total = toMoney(Math.max(0, total - carDiscountAmount));
+
+  let couponDiscountAmount = 0;
+  if (coupon) {
+    if (coupon.minAmount && total < Number(coupon.minAmount)) {
+      throw new Error("Coupon minimum amount not met");
+    }
+
+    couponDiscountAmount = applyDiscount(total, {
+      ...coupon,
+      isActive: true,
+    });
+
+    if (coupon.maxDiscount != null) {
+      couponDiscountAmount = Math.min(
+        couponDiscountAmount,
+        Number(coupon.maxDiscount)
+      );
+    }
+
+    couponDiscountAmount = toMoney(Math.min(total, couponDiscountAmount));
+    total = toMoney(Math.max(0, total - couponDiscountAmount));
+  }
+
+  return {
+    breakdown: {
+      basePrice,
+      baseFare,
+      returnBaseFare,
+      distanceMiles: outboundDistance,
+      returnDistanceMiles: isReturnTrip ? Number(returnDistanceMiles) : 0,
+      pricePerMile: outboundRate,
+      returnPricePerMile: isReturnTrip ? Number(returnPricePerMile) : 0,
+      carDiscountAmount,
+      couponDiscountAmount,
+    },
+    totalFare: total,
+    appliedCoupon: coupon?.code || null,
+  };
+}
+
+async function findCoupon(couponCode) {
+  if (!couponCode) return null;
+  return findValidCoupon(couponCode);
 }
 
 export async function calculatePrice({
   carId,
-  distanceMiles,
-  returnDistanceMiles = 0,
+  fromPlaceId,
+  toPlaceId,
+  returnFromPlaceId,
+  returnToPlaceId,
   isReturnTrip = false,
   couponCode,
 }) {
-  if (!carId || !distanceMiles || distanceMiles <= 0) {
-    throw new Error("Invalid pricing input");
+  if (!carId || !fromPlaceId || !toPlaceId) {
+    throw new Error("carId, fromPlaceId and toPlaceId are required");
   }
 
-  const car = await Car.findById(carId);
+  const outboundPromise = Promise.all([
+    calculateDistanceMiles({ fromPlaceId, toPlaceId }),
+    detectCityCode(fromPlaceId),
+  ]);
+
+  const inboundFrom = returnFromPlaceId || toPlaceId;
+  const inboundTo = returnToPlaceId || fromPlaceId;
+  const inboundPromise = isReturnTrip
+    ? Promise.all([
+        calculateDistanceMiles({
+          fromPlaceId: inboundFrom,
+          toPlaceId: inboundTo,
+        }),
+        detectCityCode(inboundFrom),
+      ])
+    : Promise.resolve([0, null]);
+
+  const [car, [distanceMiles, cityCode], [returnDistanceMiles, returnCityCode], coupon] =
+    await Promise.all([
+      Car.findById(carId),
+      outboundPromise,
+      inboundPromise,
+      findCoupon(couponCode),
+    ]);
+
   if (!car) throw new Error("Car not found");
 
-  /* --------------------------------------------------
-     1️⃣ Resolve pricePerMile (airport-aware, backward-safe)
-  -------------------------------------------------- */
-
-  let pricePerMile = Number(car.pricePerMile || 0);
-
-  // NEW: if airportRates exist, use a deterministic value
-  if (car.airportRates && Object.keys(car.airportRates).length > 0) {
-    const rates = Object.values(car.airportRates)
-      .map((r) => Number(r.pricePerMile))
-      .filter((v) => Number.isFinite(v) && v > 0);
-
-    // Use lowest configured airport rate (safe default)
-    if (rates.length > 0) {
-      pricePerMile = Math.min(...rates);
-    }
-  }
-
-  /* --------------------------------------------------
-     2️⃣ Base fare
-  -------------------------------------------------- */
-  const baseFare =
-    Number(car.basePrice || 0) +
-    Number(distanceMiles) * pricePerMile;
-
-  let total = baseFare;
-  let carDiscountAmount = 0;
-  let couponDiscountAmount = 0;
-
-  /* --------------------------------------------------
-     3️⃣ Car discounts
-  -------------------------------------------------- */
-  if (isReturnTrip) {
-    const returnFare =
-      Number(car.basePrice || 0) +
-      Number(returnDistanceMiles || distanceMiles) * pricePerMile;
-
-    total = baseFare + returnFare;
-
-    const returnDiscount = car.discounts?.find(
-      (d) => d.isActive && d.condition === "RETURN_TRIP"
-    );
-
-    if (returnDiscount) {
-      carDiscountAmount = applyDiscount(total, returnDiscount);
-      total -= carDiscountAmount;
-    }
-  } else {
-    const alwaysDiscount = car.discounts?.find(
-      (d) => d.isActive && d.condition === "ALWAYS"
-    );
-
-    if (alwaysDiscount) {
-      carDiscountAmount = applyDiscount(total, alwaysDiscount);
-      total -= carDiscountAmount;
-    }
-  }
-
-  /* --------------------------------------------------
-     4️⃣ Coupon logic (unchanged)
-  -------------------------------------------------- */
-  let coupon = null;
-
-  if (couponCode) {
-    coupon = await Coupon.findOne({
-      code: couponCode.toUpperCase(),
-      isActive: true,
-    });
-
-    if (!coupon) throw new Error("Invalid coupon");
-    if (coupon.expiresAt && coupon.expiresAt < new Date()) {
-      throw new Error("Coupon expired");
-    }
-    if (coupon.minAmount && total < coupon.minAmount) {
-      throw new Error("Coupon minimum amount not met");
-    }
-
-    couponDiscountAmount =
-      coupon.type === "PERCENTAGE"
-        ? (total * coupon.value) / 100
-        : coupon.value;
-
-    if (coupon.maxDiscount) {
-      couponDiscountAmount = Math.min(
-        couponDiscountAmount,
-        coupon.maxDiscount
-      );
-    }
-
-    total -= couponDiscountAmount;
-  }
-
-  /* --------------------------------------------------
-     5️⃣ Final safety
-  -------------------------------------------------- */
-  total = Math.max(0, total);
-
-  return {
-    breakdown: {
-      baseFare,
-      distanceMiles,
-      returnDistanceMiles: Number(returnDistanceMiles || 0),
-      pricePerMile,
-      carDiscountAmount,
-      couponDiscountAmount,
-    },
-    totalFare: Number(total.toFixed(2)),
-    appliedCoupon: coupon ? coupon.code : null,
-  };
-}
-
-
-
-
-
-export async function pricingController(req, res) {
-  const {
-    fromPlaceId,
-    toPlaceId,
-    carId,
-    isReturnTrip,
-    couponCode,
-  } = req.body;
-
-  const distanceMiles = await calculateDistanceMiles({
-    fromPlaceId,
-    toPlaceId,
-  });
-
-  const price = await calculatePrice({
-    carId,
+  return calculateFare({
+    car,
     distanceMiles,
+    pricePerMile: resolvePricePerMile(car, cityCode),
+    returnDistanceMiles,
+    returnPricePerMile: isReturnTrip
+      ? resolvePricePerMile(car, returnCityCode)
+      : 0,
     isReturnTrip,
-    couponCode,
-  });
-
-  res.json({
-    distanceMiles,
-    ...price,
+    coupon,
   });
 }
