@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { Booking } from "./booking.model.js";
 import { sendMail } from "../../utils/mailer.js";
 import { bookingConfirmedEmail } from "../../emails/bookingConfirmed.js";
+import { pricingSnapshotMatchesTotal } from "../pricing/pricing.service.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -43,7 +44,7 @@ function assertPaymentMatchesBooking(paymentIntent, request) {
     throw new Error("Paid amount does not match booking total");
   }
 
-  return {
+  const pricing = {
     basePrice: metadataNumber(metadata, "basePrice"),
     baseFare: metadataNumber(metadata, "baseFare"),
     returnBaseFare: metadataNumber(metadata, "returnBaseFare"),
@@ -56,6 +57,12 @@ function assertPaymentMatchesBooking(paymentIntent, request) {
     totalFare,
     appliedCoupon: metadata.appliedCoupon || null,
   };
+
+  if (!pricingSnapshotMatchesTotal(pricing)) {
+    throw new Error("Payment pricing snapshot does not reconcile");
+  }
+
+  return pricing;
 }
 
 export async function createBooking(req, res) {

@@ -6,6 +6,26 @@ function toMoney(value) {
   return Number(Number(value || 0).toFixed(2));
 }
 
+export function pricingSnapshotMatchesTotal(pricing) {
+  const values = [
+    pricing?.baseFare,
+    pricing?.returnBaseFare || 0,
+    pricing?.carDiscountAmount || 0,
+    pricing?.couponDiscountAmount || 0,
+    pricing?.totalFare,
+  ].map(Number);
+
+  if (values.some((value) => !Number.isFinite(value))) return false;
+
+  const [baseFare, returnBaseFare, carDiscount, couponDiscount, totalFare] =
+    values;
+  const recomposedTotal = toMoney(
+    baseFare + returnBaseFare - carDiscount - couponDiscount
+  );
+
+  return recomposedTotal === toMoney(totalFare);
+}
+
 function applyDiscount(amount, discount) {
   if (!discount?.isActive || amount <= 0) return 0;
 

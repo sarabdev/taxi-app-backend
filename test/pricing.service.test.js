@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   calculateFare,
+  pricingSnapshotMatchesTotal,
   resolvePricePerMile,
 } from "../src/modules/pricing/pricing.service.js";
 
@@ -106,4 +107,30 @@ test("coupon is applied after the car discount and capped", () => {
   assert.equal(result.breakdown.carDiscountAmount, 2);
   assert.equal(result.breakdown.couponDiscountAmount, 5);
   assert.equal(result.totalFare, 13);
+});
+
+test("accepts a pricing snapshot whose components match its total", () => {
+  assert.equal(
+    pricingSnapshotMatchesTotal({
+      baseFare: 235.67,
+      returnBaseFare: 234.74,
+      carDiscountAmount: 47.04,
+      couponDiscountAmount: 0,
+      totalFare: 423.37,
+    }),
+    true
+  );
+});
+
+test("rejects a pricing snapshot whose components do not match its total", () => {
+  assert.equal(
+    pricingSnapshotMatchesTotal({
+      baseFare: 30,
+      returnBaseFare: 0,
+      carDiscountAmount: 6.006,
+      couponDiscountAmount: 0,
+      totalFare: 53.99,
+    }),
+    false
+  );
 });
