@@ -1,12 +1,12 @@
 import Stripe from "stripe";
 import { Booking } from "./booking.model.js";
-import { User } from "../users/user.model.js";
 import { sendMail } from "../../utils/mailer.js";
 import { bookingConfirmedEmail } from "../../emails/bookingConfirmed.js";
 import { adminBookingConfirmedEmail } from "../../emails/adminBookingConfirmed.js";
 import { pricingSnapshotMatchesTotal } from "../pricing/pricing.service.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const BOOKING_ADMIN_EMAIL = "myairporttaxi86@gmail.com";
 
 function metadataNumber(metadata, key) {
   const value = Number(metadata[key] || 0);
@@ -163,25 +163,14 @@ export async function createBooking(req, res) {
       }),
     ];
 
-    try {
-      const adminEmails = await User.find({
-        role: "ADMIN",
-        isActive: true,
-      }).distinct("email");
-      const adminConfirmation = adminBookingConfirmedEmail({ booking });
-
-      for (const address of adminEmails) {
-        deliveries.push(
-          sendMail({
-            to: address,
-            subject: adminConfirmation.subject,
-            html: adminConfirmation.html,
-          })
-        );
-      }
-    } catch (error) {
-      console.error("Unable to load admin booking email recipients:", error);
-    }
+    const adminConfirmation = adminBookingConfirmedEmail({ booking });
+    deliveries.push(
+      sendMail({
+        to: BOOKING_ADMIN_EMAIL,
+        subject: adminConfirmation.subject,
+        html: adminConfirmation.html,
+      })
+    );
 
     await Promise.all(deliveries);
 

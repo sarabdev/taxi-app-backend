@@ -1,6 +1,5 @@
 import { Booking } from "./booking.model.js";
 import { Driver } from "../drivers/driver.model.js";
-import { User } from "../users/user.model.js";
 import { logActivity } from "../activity/activity.service.js";
 import { sendMail } from "../../utils/mailer.js";
 import { driverAssignedEmail } from "../../emails/driverAssigned.js";
@@ -18,6 +17,7 @@ const BOOKING_STATUSES = new Set([
   "COMPLETED",
   "CANCELLED",
 ]);
+const BOOKING_ADMIN_EMAIL = "myairporttaxi86@gmail.com";
 
 function populatedBooking(id) {
   return Booking.findById(id)
@@ -206,29 +206,18 @@ export async function updateStatus(req, res) {
       );
     }
 
-    let adminEmails = [];
-    try {
-      adminEmails = await User.find({
-        role: "ADMIN",
-        isActive: true,
-      }).distinct("email");
-    } catch (error) {
-      console.error("Unable to load admin email recipients:", error);
-    }
     const adminEmail = adminBookingCompletedEmail({
       booking,
       driverShare,
       platformShare,
     });
-    for (const address of adminEmails) {
-      emails.push(
-        sendMail({
-          to: address,
-          subject: adminEmail.subject,
-          html: adminEmail.html,
-        })
-      );
-    }
+    emails.push(
+      sendMail({
+        to: BOOKING_ADMIN_EMAIL,
+        subject: adminEmail.subject,
+        html: adminEmail.html,
+      })
+    );
 
     await Promise.all(emails);
   }

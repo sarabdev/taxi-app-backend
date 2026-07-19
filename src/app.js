@@ -14,6 +14,7 @@ import { walletAdminRouter } from "./modules/wallet/wallet.admin.routes.js";
 import { activityRouter } from "./modules/activity/activity.routes.js";
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes.js";
 import { paymentRouter } from "./modules/payments/payment.routes.js";
+import { contactRouter } from "./modules/contact/contact.routes.js";
 
 export function createApp() {
   const app = express();
@@ -36,6 +37,7 @@ export function createApp() {
   app.use("/api/activity", activityRouter);
   app.use("/api/dashboard", dashboardRouter);
   app.use("/api/payments", paymentRouter);
+  app.use("/api/contact", contactRouter);
 
 
   // global error fallback

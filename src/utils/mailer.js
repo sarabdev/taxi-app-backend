@@ -12,7 +12,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-export async function sendMail({ to, subject, html }) {
+export async function sendMail({ to, subject, html, replyTo }) {
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.error("Email skipped: SMTP configuration is incomplete");
     return { sent: false };
@@ -24,6 +24,7 @@ export async function sendMail({ to, subject, html }) {
       to,
       subject,
       html,
+      replyTo,
     });
     return { sent: true, messageId: info.messageId };
   } catch (err) {
