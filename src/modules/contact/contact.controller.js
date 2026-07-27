@@ -1,4 +1,8 @@
 import { sendMail } from "../../utils/mailer.js";
+import {
+  emailLayout,
+  escapeHtml,
+} from "../../emails/email.helpers.js";
 
 const CONTACT_RECIPIENT =
   process.env.CONTACT_TO_EMAIL || "support@myairporttaxis.uk";
@@ -10,15 +14,6 @@ const subjectLabels = {
   partnership: "Partnership",
   other: "Other",
 };
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
 
 export async function submitContactForm(req, res) {
   const {
@@ -58,15 +53,20 @@ export async function submitContactForm(req, res) {
     to: CONTACT_RECIPIENT,
     replyTo: trimmedEmail,
     subject: `Website contact: ${subjectLabel}`,
-    html: `
-      <h2>New website contact message</h2>
-      <p><strong>Name:</strong> ${escapeHtml(trimmedName)}</p>
-      <p><strong>Email:</strong> ${escapeHtml(trimmedEmail)}</p>
-      <p><strong>Phone:</strong> ${escapeHtml(trimmedPhone || "Not provided")}</p>
-      <p><strong>Subject:</strong> ${escapeHtml(subjectLabel)}</p>
-      <p><strong>Message:</strong></p>
-      <p>${escapeHtml(trimmedMessage).replaceAll("\n", "<br />")}</p>
-    `,
+    html: emailLayout({
+      title: "New website contact message",
+      preheader: `${subjectLabel} from ${trimmedName}`,
+      content: `
+        <p style="margin:0 0 10px;"><strong style="color:#0f172a;">Name:</strong> ${escapeHtml(trimmedName)}</p>
+        <p style="margin:0 0 10px;"><strong style="color:#0f172a;">Email:</strong> ${escapeHtml(trimmedEmail)}</p>
+        <p style="margin:0 0 10px;"><strong style="color:#0f172a;">Phone:</strong> ${escapeHtml(trimmedPhone || "Not provided")}</p>
+        <p style="margin:0 0 18px;"><strong style="color:#0f172a;">Subject:</strong> ${escapeHtml(subjectLabel)}</p>
+        <div style="padding:18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;">
+          <p style="margin:0 0 8px;"><strong style="color:#0f172a;">Message</strong></p>
+          <p style="margin:0;">${escapeHtml(trimmedMessage).replaceAll("\n", "<br />")}</p>
+        </div>
+      `,
+    }),
   });
 
   if (!mailResult.sent) {

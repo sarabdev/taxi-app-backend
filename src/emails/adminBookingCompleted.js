@@ -1,5 +1,6 @@
 import {
   bookingReference,
+  emailLayout,
   escapeHtml,
   formatMoney,
   journeySummary,
@@ -10,18 +11,25 @@ export function adminBookingCompletedEmail({
   driverShare,
   platformShare,
 }) {
+  const title = "Booking completed";
+
   return {
     subject: `Booking completed - ${bookingReference(booking)}`,
-    html: `
-      <h2>Booking completed</h2>
-      <p><b>Booking reference:</b> ${bookingReference(booking)}</p>
-      <p><b>Customer:</b> ${escapeHtml(booking.customerName)}</p>
-      <p><b>Customer email:</b> ${escapeHtml(booking.customerEmail)}</p>
-      <p><b>Driver:</b> ${escapeHtml(booking.assignedDriverId?.name || "Unknown")}</p>
+    html: emailLayout({
+      title,
+      preheader: `Booking ${bookingReference(booking)} has been completed.`,
+      content: `
+      <p style="margin:0 0 10px;"><b style="color:#0f172a;">Booking reference:</b> ${bookingReference(booking)}</p>
+      <p style="margin:0 0 10px;"><b style="color:#0f172a;">Customer:</b> ${escapeHtml(booking.customerName)}</p>
+      <p style="margin:0 0 10px;"><b style="color:#0f172a;">Customer email:</b> ${escapeHtml(booking.customerEmail)}</p>
+      <p style="margin:0 0 10px;"><b style="color:#0f172a;">Driver:</b> ${escapeHtml(booking.assignedDriverId?.name || "Unknown")}</p>
       ${journeySummary(booking)}
-      <p><b>Total fare:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
-      <p><b>Driver earnings (80%):</b> ${formatMoney(driverShare)}</p>
-      <p><b>Platform share (20%):</b> ${formatMoney(platformShare)}</p>
-    `,
+      <div style="margin-top:18px;padding:18px;background:#fffbeb;border:1px solid #fde68a;border-radius:14px;">
+        <p style="margin:0 0 8px;"><b style="color:#0f172a;">Total fare:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
+        <p style="margin:0 0 8px;"><b style="color:#0f172a;">Driver earnings (80%):</b> ${formatMoney(driverShare)}</p>
+        <p style="margin:0;"><b style="color:#0f172a;">Platform share (20%):</b> ${formatMoney(platformShare)}</p>
+      </div>
+      `,
+    }),
   };
 }

@@ -63,3 +63,25 @@ test("admin completion contains driver and platform shares", () => {
   assert.match(email.html, /&pound;40\.00/);
   assert.match(email.html, /&pound;10\.00/);
 });
+
+test("all booking emails use the shared branded layout", () => {
+  const emails = [
+    bookingConfirmedEmail({ booking }),
+    customerBookingCompletedEmail({ booking }),
+    driverAssignedEmail({ booking }),
+    bookingCompletedEmail({ booking, driverShare: 40 }),
+    adminBookingConfirmedEmail({ booking }),
+    adminBookingCompletedEmail({
+      booking,
+      driverShare: 40,
+      platformShare: 10,
+    }),
+  ];
+
+  for (const email of emails) {
+    assert.match(email.html, /^<!doctype html>/);
+    assert.match(email.html, /MYAIRPORT/);
+    assert.match(email.html, /support@myairporttaxis\.uk/);
+    assert.match(email.html, /max-width:620px/);
+  }
+});

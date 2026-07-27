@@ -1,22 +1,27 @@
 import {
   bookingReference,
+  emailLayout,
   escapeHtml,
   formatMoney,
   journeySummary,
 } from "./email.helpers.js";
 
 export function bookingConfirmedEmail({ booking }) {
+  const title = "Your airport taxi is booked";
+
   return {
     subject: `Booking confirmed - ${bookingReference(booking)}`,
-    html: `
-      <h2>Your airport taxi is booked</h2>
-      <p>Hello ${escapeHtml(booking.customerName)},</p>
-      <p>Thank you for booking with My Airport Taxis. Your payment and booking have been confirmed.</p>
-      <p><b>Booking reference:</b> ${bookingReference(booking)}</p>
+    html: emailLayout({
+      title,
+      preheader: `Booking ${bookingReference(booking)} is confirmed.`,
+      content: `
+      <p style="margin:0 0 14px;">Hello ${escapeHtml(booking.customerName)},</p>
+      <p style="margin:0 0 14px;">Thank you for booking with My Airport Taxis. Your payment and booking have been confirmed.</p>
+      <p style="margin:0 0 14px;"><b style="color:#0f172a;">Booking reference:</b> ${bookingReference(booking)}</p>
       ${journeySummary(booking)}
-      <p><b>Total paid:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
-      <p>We will contact you if there is an important update to your journey.</p>
-      <p>My Airport Taxis<br />support@myairporttaxis.uk</p>
-    `,
+      <p style="margin:0 0 14px;font-size:18px;"><b style="color:#0f172a;">Total paid:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
+      <p style="margin:0;">We will contact you if there is an important update to your journey.</p>
+      `,
+    }),
   };
 }
