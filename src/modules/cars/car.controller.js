@@ -1,7 +1,11 @@
 import fs from "fs";
 import { Car } from "./car.model.js";
 import { calculateDistanceMiles, detectCityCode } from "../pricing/distance.service.js";
-import { calculateFare, resolvePricePerMile } from "../pricing/pricing.service.js";
+import {
+  calculateFare,
+  getReusedReturnDistance,
+  resolvePricePerMile,
+} from "../pricing/pricing.service.js";
 
 export async function createCar(req, res) {
   try {
@@ -72,20 +76,22 @@ export async function listPublicCarsWithPricing(req) {
 
   const [
     distanceMiles,
-    returnDistanceMiles,
     cityCode,
     returnCityCode,
     cars,
   ] = await Promise.all([
     calculateDistanceMiles({ fromPlaceId, toPlaceId }),
-    calculateDistanceMiles({
-      fromPlaceId: toPlaceId,
-      toPlaceId: fromPlaceId,
-    }),
     detectCityCode(fromPlaceId),
     detectCityCode(toPlaceId),
     Car.find(),
   ]);
+  const returnDistanceMiles = getReusedReturnDistance({
+    outboundDistanceMiles: distanceMiles,
+    fromPlaceId,
+    toPlaceId,
+    returnFromPlaceId: toPlaceId,
+    returnToPlaceId: fromPlaceId,
+  });
 
   const pricedCars = cars.map((car) => {
     const pricePerMile = resolvePricePerMile(car, cityCode);

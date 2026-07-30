@@ -68,6 +68,26 @@ export function resolvePricePerMile(car, cityCode) {
   throw new Error(`No per-mile rate configured for ${car.name || "this car"}`);
 }
 
+export function isExactReverseRoute({
+  fromPlaceId,
+  toPlaceId,
+  returnFromPlaceId,
+  returnToPlaceId,
+}) {
+  return (
+    Boolean(fromPlaceId && toPlaceId && returnFromPlaceId && returnToPlaceId) &&
+    returnFromPlaceId === toPlaceId &&
+    returnToPlaceId === fromPlaceId
+  );
+}
+
+export function getReusedReturnDistance({
+  outboundDistanceMiles,
+  ...route
+}) {
+  return isExactReverseRoute(route) ? Number(outboundDistanceMiles) : null;
+}
+
 export function calculateFare({
   car,
   distanceMiles,
@@ -117,7 +137,7 @@ export function calculateFare({
       (discount) => discount.isActive && discount.condition === "RETURN_TRIP"
     );
 
-    carDiscountAmount = applyDiscount(total, returnDiscount);
+    carDiscountAmount = applyDiscount(returnBaseFare, returnDiscount);
   } else {
     const alwaysDiscount = car.discounts?.find(
       (discount) => discount.isActive && discount.condition === "ALWAYS"
@@ -192,12 +212,20 @@ export async function calculatePrice({
 
   const inboundFrom = returnFromPlaceId || toPlaceId;
   const inboundTo = returnToPlaceId || fromPlaceId;
+  const shouldReuseOutboundDistance = isExactReverseRoute({
+    fromPlaceId,
+    toPlaceId,
+    returnFromPlaceId: inboundFrom,
+    returnToPlaceId: inboundTo,
+  });
   const inboundPromise = isReturnTrip
     ? Promise.all([
-        calculateDistanceMiles({
-          fromPlaceId: inboundFrom,
-          toPlaceId: inboundTo,
-        }),
+        shouldReuseOutboundDistance
+          ? outboundPromise.then(([distance]) => distance)
+          : calculateDistanceMiles({
+              fromPlaceId: inboundFrom,
+              toPlaceId: inboundTo,
+            }),
         detectCityCode(inboundFrom),
       ])
     : Promise.resolve([0, null]);

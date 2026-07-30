@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   calculateFare,
+  getReusedReturnDistance,
   pricingSnapshotMatchesTotal,
   resolvePricePerMile,
 } from "../src/modules/pricing/pricing.service.js";
@@ -34,7 +35,7 @@ test("one-way fare is base price plus distance times city rate", () => {
   assert.equal(result.totalFare, 20);
 });
 
-test("return fare uses each leg's city rate before percentage discount", () => {
+test("return percentage discount applies only to the return leg", () => {
   const result = calculateFare({
     car: car({
       discounts: [
@@ -55,8 +56,8 @@ test("return fare uses each leg's city rate before percentage discount", () => {
 
   assert.equal(result.breakdown.baseFare, 20);
   assert.equal(result.breakdown.returnBaseFare, 25);
-  assert.equal(result.breakdown.carDiscountAmount, 4.5);
-  assert.equal(result.totalFare, 40.5);
+  assert.equal(result.breakdown.carDiscountAmount, 2.5);
+  assert.equal(result.totalFare, 42.5);
 });
 
 test("fixed return discount remains fixed when return route changes", () => {
@@ -80,6 +81,84 @@ test("fixed return discount remains fixed when return route changes", () => {
 
   assert.equal(result.breakdown.carDiscountAmount, 10);
   assert.equal(result.totalFare, 80);
+});
+
+test("reuses the outbound distance for an exact reversed return route", () => {
+  assert.equal(
+    getReusedReturnDistance({
+      outboundDistanceMiles: 10,
+      fromPlaceId: "A",
+      toPlaceId: "B",
+      returnFromPlaceId: "B",
+      returnToPlaceId: "A",
+    }),
+    10
+  );
+});
+
+test("does not reuse the outbound distance for a custom return route", () => {
+  assert.equal(
+    getReusedReturnDistance({
+      outboundDistanceMiles: 10,
+      fromPlaceId: "A",
+      toPlaceId: "B",
+      returnFromPlaceId: "C",
+      returnToPlaceId: "A",
+    }),
+    null
+  );
+});
+
+test("exact return route doubles the fare before a fixed discount", () => {
+  const result = calculateFare({
+    car: car({
+      basePrice: 0,
+      discounts: [
+        {
+          type: "FIXED",
+          value: 10,
+          condition: "RETURN_TRIP",
+          isActive: true,
+        },
+      ],
+    }),
+    distanceMiles: 10,
+    pricePerMile: 2,
+    returnDistanceMiles: 10,
+    returnPricePerMile: 2,
+    isReturnTrip: true,
+  });
+
+  assert.equal(result.breakdown.baseFare, 20);
+  assert.equal(result.breakdown.returnBaseFare, 20);
+  assert.equal(result.breakdown.carDiscountAmount, 10);
+  assert.equal(result.totalFare, 30);
+});
+
+test("fixed return discount cannot reduce the outbound fare", () => {
+  const result = calculateFare({
+    car: car({
+      basePrice: 0,
+      discounts: [
+        {
+          type: "FIXED",
+          value: 25,
+          condition: "RETURN_TRIP",
+          isActive: true,
+        },
+      ],
+    }),
+    distanceMiles: 10,
+    pricePerMile: 2,
+    returnDistanceMiles: 5,
+    returnPricePerMile: 2,
+    isReturnTrip: true,
+  });
+
+  assert.equal(result.breakdown.baseFare, 20);
+  assert.equal(result.breakdown.returnBaseFare, 10);
+  assert.equal(result.breakdown.carDiscountAmount, 10);
+  assert.equal(result.totalFare, 20);
 });
 
 test("coupon is applied after the car discount and capped", () => {
