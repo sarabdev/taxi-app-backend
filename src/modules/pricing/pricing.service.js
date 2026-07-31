@@ -149,11 +149,12 @@ export function calculateFare({
   total = toMoney(Math.max(0, total - carDiscountAmount));
 
   let couponDiscountAmount = 0;
-  if (coupon) {
-    if (coupon.minAmount && total < Number(coupon.minAmount)) {
-      throw new Error("Coupon minimum amount not met");
-    }
+  let appliedCoupon = null;
+  const couponEligible =
+    coupon &&
+    (!coupon.minAmount || total >= Number(coupon.minAmount));
 
+  if (couponEligible) {
     couponDiscountAmount = applyDiscount(total, {
       ...coupon,
       isActive: true,
@@ -168,6 +169,7 @@ export function calculateFare({
 
     couponDiscountAmount = toMoney(Math.min(total, couponDiscountAmount));
     total = toMoney(Math.max(0, total - couponDiscountAmount));
+    appliedCoupon = coupon.code || null;
   }
 
   return {
@@ -183,7 +185,89 @@ export function calculateFare({
       couponDiscountAmount,
     },
     totalFare: total,
-    appliedCoupon: coupon?.code || null,
+    appliedCoupon,
+  };
+}
+
+export function calculatePublicFareOptions({
+  car,
+  distanceMiles,
+  pricePerMile,
+  returnDistanceMiles,
+  returnPricePerMile,
+  coupon = null,
+}) {
+  const oneWayBaseQuote = calculateFare({
+    car,
+    distanceMiles,
+    pricePerMile,
+  });
+  const oneWayQuote = calculateFare({
+    car,
+    distanceMiles,
+    pricePerMile,
+    coupon,
+  });
+  const supportsReturnTrip = Boolean(
+    car.discounts?.find(
+      (discount) =>
+        discount.isActive && discount.condition === "RETURN_TRIP"
+    )
+  );
+  const returnInput = {
+    car,
+    distanceMiles,
+    pricePerMile,
+    returnDistanceMiles,
+    returnPricePerMile,
+    isReturnTrip: true,
+  };
+  const returnBaseQuote = supportsReturnTrip
+    ? calculateFare(returnInput)
+    : null;
+  const returnQuote = supportsReturnTrip
+    ? calculateFare({ ...returnInput, coupon })
+    : null;
+  const undiscountedRoundTripFare = returnBaseQuote
+    ? toMoney(
+        returnBaseQuote.breakdown.baseFare +
+          returnBaseQuote.breakdown.returnBaseFare
+      )
+    : null;
+
+  return {
+    supportsReturnTrip,
+    pricing: {
+      distanceMiles,
+      basePrice: Number(car.basePrice || 0),
+      pricePerMile,
+      returnPricePerMile,
+      oneWayFare: oneWayQuote.totalFare,
+      originalOneWayFare:
+        oneWayQuote.breakdown.couponDiscountAmount > 0
+          ? oneWayBaseQuote.totalFare
+          : oneWayQuote.breakdown.carDiscountAmount > 0
+            ? oneWayQuote.breakdown.baseFare
+            : null,
+      oneWayDiscountAmount: oneWayQuote.breakdown.carDiscountAmount,
+      oneWayCouponDiscountAmount:
+        oneWayQuote.breakdown.couponDiscountAmount,
+      oneWayAppliedCoupon: oneWayQuote.appliedCoupon,
+      roundTripFare: returnQuote?.totalFare ?? null,
+      originalRoundTripFare:
+        returnQuote?.breakdown.couponDiscountAmount > 0
+          ? returnBaseQuote.totalFare
+          : returnQuote?.breakdown.carDiscountAmount > 0
+            ? undiscountedRoundTripFare
+            : null,
+      returnDiscountAmount:
+        returnQuote?.breakdown.carDiscountAmount || 0,
+      returnCouponDiscountAmount:
+        returnQuote?.breakdown.couponDiscountAmount || 0,
+      returnAppliedCoupon: returnQuote?.appliedCoupon || null,
+      returnDistanceMiles:
+        returnQuote?.breakdown.returnDistanceMiles || 0,
+    },
   };
 }
 
