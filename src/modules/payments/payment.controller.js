@@ -17,6 +17,7 @@ export async function createPaymentIntent(req, res) {
       returnToPlaceId,
       isReturnTrip = false,
       couponCode,
+      meetAndGreet = false,
     } = req.body;
 
     const pricing = await calculatePrice({
@@ -27,6 +28,7 @@ export async function createPaymentIntent(req, res) {
       returnToPlaceId,
       isReturnTrip,
       couponCode,
+      meetAndGreet: Boolean(meetAndGreet),
     });
 
     if (pricing.totalFare <= 0) {
@@ -38,7 +40,7 @@ export async function createPaymentIntent(req, res) {
       currency: "gbp",
       automatic_payment_methods: { enabled: true },
       metadata: {
-        pricingVersion: "2",
+        pricingVersion: "3",
         carId: metadataValue(carId),
         fromPlaceId: metadataValue(fromPlaceId),
         toPlaceId: metadataValue(toPlaceId),
@@ -46,6 +48,7 @@ export async function createPaymentIntent(req, res) {
         returnToPlaceId: metadataValue(returnToPlaceId),
         isReturnTrip: metadataValue(Boolean(isReturnTrip)),
         couponCode: metadataValue(couponCode).toUpperCase(),
+        meetAndGreet: metadataValue(Boolean(meetAndGreet)),
         basePrice: metadataValue(pricing.breakdown.basePrice),
         baseFare: metadataValue(pricing.breakdown.baseFare),
         returnBaseFare: metadataValue(pricing.breakdown.returnBaseFare),
@@ -62,6 +65,9 @@ export async function createPaymentIntent(req, res) {
         ),
         couponDiscountAmount: metadataValue(
           pricing.breakdown.couponDiscountAmount
+        ),
+        meetAndGreetFee: metadataValue(
+          pricing.breakdown.meetAndGreetFee
         ),
         totalFare: metadataValue(pricing.totalFare),
         appliedCoupon: metadataValue(pricing.appliedCoupon),

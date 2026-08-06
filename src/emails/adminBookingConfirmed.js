@@ -19,6 +19,7 @@ export function adminBookingConfirmedEmail({ booking }) {
       <p style="margin:0 0 10px;"><b style="color:#0f172a;">Customer:</b> ${escapeHtml(booking.customerName)}</p>
       <p style="margin:0 0 10px;"><b style="color:#0f172a;">Customer email:</b> ${escapeHtml(booking.customerEmail)}</p>
       ${journeySummary(booking)}
+      ${booking.flight?.meetAndGreet ? `<p style="margin:0 0 10px;"><b style="color:#0f172a;">Meet &amp; Greet:</b> Selected (${formatMoney(booking.pricing?.meetAndGreetFee)})</p>` : ""}
       <p style="margin:0;font-size:18px;"><b style="color:#0f172a;">Total paid:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
       `,
     }),

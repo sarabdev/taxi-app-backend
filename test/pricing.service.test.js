@@ -189,6 +189,25 @@ test("coupon is applied after the car discount and capped", () => {
   assert.equal(result.totalFare, 13);
 });
 
+test("Meet & Greet is added as a fixed service fee after discounts", () => {
+  const result = calculateFare({
+    car: car(),
+    distanceMiles: 5,
+    pricePerMile: 2,
+    meetAndGreetFee: 12.5,
+    coupon: {
+      code: "SAVE50",
+      type: "PERCENTAGE",
+      value: 50,
+    },
+  });
+
+  assert.equal(result.breakdown.baseFare, 20);
+  assert.equal(result.breakdown.couponDiscountAmount, 10);
+  assert.equal(result.breakdown.meetAndGreetFee, 12.5);
+  assert.equal(result.totalFare, 22.5);
+});
+
 test("coupon below its minimum spend is skipped without leaving stale pricing", () => {
   const result = calculateFare({
     car: car(),
@@ -211,7 +230,7 @@ test("coupon below its minimum spend is skipped without leaving stale pricing", 
   }), true);
 });
 
-test("public vehicle prices apply a voucher independently to one-way and return fares", () => {
+test("return fare cannot make an ineligible one-way fare meet the voucher minimum", () => {
   const result = calculatePublicFareOptions({
     car: car({
       discounts: [
@@ -239,11 +258,34 @@ test("public vehicle prices apply a voucher independently to one-way and return 
   assert.equal(result.pricing.oneWayFare, 20);
   assert.equal(result.pricing.oneWayCouponDiscountAmount, 0);
   assert.equal(result.pricing.oneWayAppliedCoupon, null);
-  assert.equal(result.pricing.roundTripFare, 34);
-  assert.equal(result.pricing.originalRoundTripFare, 42.5);
+  assert.equal(result.pricing.roundTripFare, 42.5);
+  assert.equal(result.pricing.originalRoundTripFare, 45);
   assert.equal(result.pricing.returnDiscountAmount, 2.5);
-  assert.equal(result.pricing.returnCouponDiscountAmount, 8.5);
-  assert.equal(result.pricing.returnAppliedCoupon, "SAVE20");
+  assert.equal(result.pricing.returnCouponDiscountAmount, 0);
+  assert.equal(result.pricing.returnAppliedCoupon, null);
+});
+
+test("eligible outbound fare allows a voucher to discount the full return fare", () => {
+  const result = calculateFare({
+    car: car({ basePrice: 0 }),
+    distanceMiles: 20,
+    pricePerMile: 2,
+    returnDistanceMiles: 10,
+    returnPricePerMile: 2,
+    isReturnTrip: true,
+    coupon: {
+      code: "SAVE20",
+      type: "PERCENTAGE",
+      value: 20,
+      minAmount: 40,
+    },
+  });
+
+  assert.equal(result.breakdown.baseFare, 40);
+  assert.equal(result.breakdown.returnBaseFare, 20);
+  assert.equal(result.breakdown.couponDiscountAmount, 12);
+  assert.equal(result.totalFare, 48);
+  assert.equal(result.appliedCoupon, "SAVE20");
 });
 
 test("fixed voucher cannot reduce a vehicle fare below zero", () => {
@@ -274,6 +316,20 @@ test("accepts a pricing snapshot whose components match its total", () => {
       carDiscountAmount: 47.04,
       couponDiscountAmount: 0,
       totalFare: 423.37,
+    }),
+    true
+  );
+});
+
+test("accepts a pricing snapshot containing a Meet & Greet fee", () => {
+  assert.equal(
+    pricingSnapshotMatchesTotal({
+      baseFare: 30,
+      returnBaseFare: 0,
+      carDiscountAmount: 0,
+      couponDiscountAmount: 5,
+      meetAndGreetFee: 12.5,
+      totalFare: 37.5,
     }),
     true
   );

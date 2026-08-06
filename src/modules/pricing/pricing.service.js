@@ -1,6 +1,7 @@
 import { Car } from "../cars/car.model.js";
 import { findValidCoupon } from "../coupons/coupon.service.js";
 import { calculateDistanceMiles, detectCityCode } from "./distance.service.js";
+import { getMeetAndGreetPrice } from "../settings/settings.service.js";
 
 function toMoney(value) {
   return Number(Number(value || 0).toFixed(2));
@@ -12,15 +13,23 @@ export function pricingSnapshotMatchesTotal(pricing) {
     pricing?.returnBaseFare || 0,
     pricing?.carDiscountAmount || 0,
     pricing?.couponDiscountAmount || 0,
+    pricing?.meetAndGreetFee || 0,
     pricing?.totalFare,
   ].map(Number);
 
   if (values.some((value) => !Number.isFinite(value))) return false;
 
-  const [baseFare, returnBaseFare, carDiscount, couponDiscount, totalFare] =
+  const [
+    baseFare,
+    returnBaseFare,
+    carDiscount,
+    couponDiscount,
+    meetAndGreetFee,
+    totalFare,
+  ] =
     values;
   const recomposedTotal = toMoney(
-    baseFare + returnBaseFare - carDiscount - couponDiscount
+    baseFare + returnBaseFare - carDiscount - couponDiscount + meetAndGreetFee
   );
 
   return recomposedTotal === toMoney(totalFare);
@@ -96,6 +105,7 @@ export function calculateFare({
   returnPricePerMile = 0,
   isReturnTrip = false,
   coupon = null,
+  meetAndGreetFee = 0,
 }) {
   const outboundDistance = Number(distanceMiles);
   const outboundRate = Number(pricePerMile);
@@ -150,9 +160,11 @@ export function calculateFare({
 
   let couponDiscountAmount = 0;
   let appliedCoupon = null;
+  const couponEligibilityAmount = isReturnTrip ? baseFare : total;
   const couponEligible =
     coupon &&
-    (!coupon.minAmount || total >= Number(coupon.minAmount));
+    (!coupon.minAmount ||
+      couponEligibilityAmount >= Number(coupon.minAmount));
 
   if (couponEligible) {
     couponDiscountAmount = applyDiscount(total, {
@@ -172,6 +184,9 @@ export function calculateFare({
     appliedCoupon = coupon.code || null;
   }
 
+  const serviceFee = toMoney(Math.max(0, Number(meetAndGreetFee) || 0));
+  total = toMoney(total + serviceFee);
+
   return {
     breakdown: {
       basePrice,
@@ -183,6 +198,7 @@ export function calculateFare({
       returnPricePerMile: isReturnTrip ? Number(returnPricePerMile) : 0,
       carDiscountAmount,
       couponDiscountAmount,
+      meetAndGreetFee: serviceFee,
     },
     totalFare: total,
     appliedCoupon,
@@ -284,6 +300,7 @@ export async function calculatePrice({
   returnToPlaceId,
   isReturnTrip = false,
   couponCode,
+  meetAndGreet = false,
 }) {
   if (!carId || !fromPlaceId || !toPlaceId) {
     throw new Error("carId, fromPlaceId and toPlaceId are required");
@@ -314,12 +331,19 @@ export async function calculatePrice({
       ])
     : Promise.resolve([0, null]);
 
-  const [car, [distanceMiles, cityCode], [returnDistanceMiles, returnCityCode], coupon] =
+  const [
+    car,
+    [distanceMiles, cityCode],
+    [returnDistanceMiles, returnCityCode],
+    coupon,
+    configuredMeetAndGreetPrice,
+  ] =
     await Promise.all([
       Car.findById(carId),
       outboundPromise,
       inboundPromise,
       findCoupon(couponCode),
+      meetAndGreet ? getMeetAndGreetPrice() : Promise.resolve(0),
     ]);
 
   if (!car) throw new Error("Car not found");
@@ -334,5 +358,6 @@ export async function calculatePrice({
       : 0,
     isReturnTrip,
     coupon,
+    meetAndGreetFee: meetAndGreet ? configuredMeetAndGreetPrice : 0,
   });
 }

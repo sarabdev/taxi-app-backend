@@ -19,6 +19,7 @@ export function bookingConfirmedEmail({ booking }) {
       <p style="margin:0 0 14px;">Thank you for booking with My Airport Taxis. Your payment and booking have been confirmed.</p>
       <p style="margin:0 0 14px;"><b style="color:#0f172a;">Booking reference:</b> ${bookingReference(booking)}</p>
       ${journeySummary(booking)}
+      ${booking.flight?.meetAndGreet ? `<p style="margin:0 0 14px;"><b style="color:#0f172a;">Meet &amp; Greet:</b> Selected (${formatMoney(booking.pricing?.meetAndGreetFee)})</p>` : ""}
       <p style="margin:0 0 14px;font-size:18px;"><b style="color:#0f172a;">Total paid:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
       <p style="margin:0;">We will contact you if there is an important update to your journey.</p>
       `,

@@ -39,6 +39,10 @@ const PricingSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    meetAndGreetFee: {
+      type: Number,
+      default: 0,
+    },
     totalFare: {
       type: Number,
       required: true,

@@ -27,15 +27,17 @@ function assertPaymentMatchesBooking(paymentIntent, request) {
   const metadata = paymentIntent.metadata || {};
   const expectedReturn = request.isReturnTrip ? "true" : "false";
   const requestCoupon = String(request.couponCode || "").toUpperCase();
+  const expectedMeetAndGreet = request.meetAndGreet ? "true" : "false";
   const matches =
-    metadata.pricingVersion === "2" &&
+    metadata.pricingVersion === "3" &&
     metadata.carId === String(request.carId) &&
     metadata.fromPlaceId === String(request.fromPlaceId || "") &&
     metadata.toPlaceId === String(request.toPlaceId || "") &&
     metadata.returnFromPlaceId === String(request.returnFromPlaceId || "") &&
     metadata.returnToPlaceId === String(request.returnToPlaceId || "") &&
     metadata.isReturnTrip === expectedReturn &&
-    metadata.couponCode === requestCoupon;
+    metadata.couponCode === requestCoupon &&
+    metadata.meetAndGreet === expectedMeetAndGreet;
 
   if (!matches) {
     throw new Error("Payment does not match this booking");
@@ -56,6 +58,7 @@ function assertPaymentMatchesBooking(paymentIntent, request) {
     returnPricePerMile: metadataNumber(metadata, "returnPricePerMile"),
     carDiscountAmount: metadataNumber(metadata, "carDiscountAmount"),
     couponDiscountAmount: metadataNumber(metadata, "couponDiscountAmount"),
+    meetAndGreetFee: metadataNumber(metadata, "meetAndGreetFee"),
     totalFare,
     appliedCoupon: metadata.appliedCoupon || null,
   };
@@ -112,6 +115,7 @@ export async function createBooking(req, res) {
       returnToPlaceId: isReturnTrip ? returnTrip?.dropoffPlaceId : "",
       isReturnTrip: Boolean(isReturnTrip),
       couponCode,
+      meetAndGreet: Boolean(flight?.meetAndGreet),
     });
 
     const booking = await Booking.create({
