@@ -7,6 +7,10 @@ function toMoney(value) {
   return Number(Number(value || 0).toFixed(2));
 }
 
+function toWholePrice(value) {
+  return Math.round(toMoney(value));
+}
+
 export function pricingSnapshotMatchesTotal(pricing) {
   const values = [
     pricing?.baseFare,
@@ -32,7 +36,14 @@ export function pricingSnapshotMatchesTotal(pricing) {
     baseFare + returnBaseFare - carDiscount - couponDiscount + meetAndGreetFee
   );
 
-  return recomposedTotal === toMoney(totalFare);
+  const suppliedTotal = toMoney(totalFare);
+
+  // Accept existing two-decimal payment snapshots as well as newly rounded
+  // totals so payments already in progress remain valid during deployment.
+  return (
+    recomposedTotal === suppliedTotal ||
+    toWholePrice(recomposedTotal) === suppliedTotal
+  );
 }
 
 function applyDiscount(amount, discount) {
@@ -49,6 +60,46 @@ function applyDiscount(amount, discount) {
         : 0;
 
   return toMoney(Math.min(amount, discountAmount));
+}
+
+function configuredFixedPrice(value) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const price = Number(value);
+  return Number.isFinite(price) && price >= 0 ? price : null;
+}
+
+export function calculateLegFare({ car, distanceMiles, pricePerMile }) {
+  const distance = Number(distanceMiles);
+  const rate = Number(pricePerMile);
+  const basePrice = Number(car.basePrice || 0);
+
+  if (
+    !Number.isFinite(distance) ||
+    distance <= 0 ||
+    !Number.isFinite(rate) ||
+    rate <= 0 ||
+    !Number.isFinite(basePrice) ||
+    basePrice < 0
+  ) {
+    throw new Error("Invalid pricing input");
+  }
+
+  const upTo5Price = configuredFixedPrice(car.fixedPriceUpTo5Miles);
+  if (distance <= 5) {
+    return upTo5Price === null
+      ? toMoney(basePrice + distance * rate)
+      : toMoney(upTo5Price);
+  }
+
+  const upTo10Price = configuredFixedPrice(car.fixedPriceUpTo10Miles);
+  if (distance <= 10) {
+    return upTo10Price === null
+      ? toMoney(basePrice + distance * rate)
+      : toMoney(upTo10Price);
+  }
+
+  return toMoney(basePrice + distance * rate);
 }
 
 function getConfiguredRates(car) {
@@ -110,19 +161,11 @@ export function calculateFare({
   const outboundDistance = Number(distanceMiles);
   const outboundRate = Number(pricePerMile);
   const basePrice = Number(car.basePrice || 0);
-
-  if (
-    !Number.isFinite(outboundDistance) ||
-    outboundDistance <= 0 ||
-    !Number.isFinite(outboundRate) ||
-    outboundRate <= 0 ||
-    !Number.isFinite(basePrice) ||
-    basePrice < 0
-  ) {
-    throw new Error("Invalid pricing input");
-  }
-
-  const baseFare = toMoney(basePrice + outboundDistance * outboundRate);
+  const baseFare = calculateLegFare({
+    car,
+    distanceMiles: outboundDistance,
+    pricePerMile: outboundRate,
+  });
   let returnBaseFare = 0;
   let total = baseFare;
   let carDiscountAmount = 0;
@@ -140,7 +183,11 @@ export function calculateFare({
       throw new Error("Invalid return pricing input");
     }
 
-    returnBaseFare = toMoney(basePrice + inboundDistance * inboundRate);
+    returnBaseFare = calculateLegFare({
+      car,
+      distanceMiles: inboundDistance,
+      pricePerMile: inboundRate,
+    });
     total = toMoney(baseFare + returnBaseFare);
 
     const returnDiscount = car.discounts?.find(
@@ -185,7 +232,7 @@ export function calculateFare({
   }
 
   const serviceFee = toMoney(Math.max(0, Number(meetAndGreetFee) || 0));
-  total = toMoney(total + serviceFee);
+  total = toWholePrice(total + serviceFee);
 
   return {
     breakdown: {

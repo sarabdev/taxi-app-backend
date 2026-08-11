@@ -100,6 +100,19 @@ const CarSchema = new mongoose.Schema(
       min: 0,
     },
 
+    /* Fixed short-distance fares (per leg) */
+    fixedPriceUpTo5Miles: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+
+    fixedPriceUpTo10Miles: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+
     /* Airport-based Per-Mile Pricing */
     airportRates: {
       type: Map,

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   calculateFare,
+  calculateLegFare,
   calculatePublicFareOptions,
   getReusedReturnDistance,
   pricingSnapshotMatchesTotal,
@@ -36,6 +37,88 @@ test("one-way fare is base price plus distance times city rate", () => {
   assert.equal(result.totalFare, 20);
 });
 
+test("uses the fixed up-to-5-mile price at the 5-mile boundary", () => {
+  assert.equal(
+    calculateLegFare({
+      car: car({
+        fixedPriceUpTo5Miles: 24,
+        fixedPriceUpTo10Miles: 38,
+      }),
+      distanceMiles: 5,
+      pricePerMile: 2,
+    }),
+    24
+  );
+});
+
+test("uses the fixed 5-to-10-mile price above 5 through 10 miles", () => {
+  const pricedCar = car({
+    fixedPriceUpTo5Miles: 24,
+    fixedPriceUpTo10Miles: 38,
+  });
+
+  assert.equal(
+    calculateLegFare({ car: pricedCar, distanceMiles: 5.01, pricePerMile: 2 }),
+    38
+  );
+  assert.equal(
+    calculateLegFare({ car: pricedCar, distanceMiles: 10, pricePerMile: 2 }),
+    38
+  );
+});
+
+test("uses base plus per-mile pricing above 10 miles", () => {
+  assert.equal(
+    calculateLegFare({
+      car: car({
+        fixedPriceUpTo5Miles: 24,
+        fixedPriceUpTo10Miles: 38,
+      }),
+      distanceMiles: 10.01,
+      pricePerMile: 2,
+    }),
+    30.02
+  );
+});
+
+test("falls back to per-mile pricing when a fixed band is not configured", () => {
+  assert.equal(
+    calculateLegFare({
+      car: car(),
+      distanceMiles: 4,
+      pricePerMile: 2,
+    }),
+    18
+  );
+
+  assert.equal(
+    calculateLegFare({
+      car: car({ fixedPriceUpTo10Miles: 38 }),
+      distanceMiles: 4,
+      pricePerMile: 2,
+    }),
+    18
+  );
+});
+
+test("prices outbound and return legs using their matching distance bands", () => {
+  const result = calculateFare({
+    car: car({
+      fixedPriceUpTo5Miles: 24,
+      fixedPriceUpTo10Miles: 38,
+    }),
+    distanceMiles: 4,
+    pricePerMile: 2,
+    returnDistanceMiles: 8,
+    returnPricePerMile: 3,
+    isReturnTrip: true,
+  });
+
+  assert.equal(result.breakdown.baseFare, 24);
+  assert.equal(result.breakdown.returnBaseFare, 38);
+  assert.equal(result.totalFare, 62);
+});
+
 test("return percentage discount applies only to the return leg", () => {
   const result = calculateFare({
     car: car({
@@ -58,7 +141,7 @@ test("return percentage discount applies only to the return leg", () => {
   assert.equal(result.breakdown.baseFare, 20);
   assert.equal(result.breakdown.returnBaseFare, 25);
   assert.equal(result.breakdown.carDiscountAmount, 2.5);
-  assert.equal(result.totalFare, 42.5);
+  assert.equal(result.totalFare, 43);
 });
 
 test("fixed return discount remains fixed when return route changes", () => {
@@ -205,7 +288,7 @@ test("Meet & Greet is added as a fixed service fee after discounts", () => {
   assert.equal(result.breakdown.baseFare, 20);
   assert.equal(result.breakdown.couponDiscountAmount, 10);
   assert.equal(result.breakdown.meetAndGreetFee, 12.5);
-  assert.equal(result.totalFare, 22.5);
+  assert.equal(result.totalFare, 23);
 });
 
 test("coupon below its minimum spend is skipped without leaving stale pricing", () => {
@@ -258,7 +341,7 @@ test("return fare cannot make an ineligible one-way fare meet the voucher minimu
   assert.equal(result.pricing.oneWayFare, 20);
   assert.equal(result.pricing.oneWayCouponDiscountAmount, 0);
   assert.equal(result.pricing.oneWayAppliedCoupon, null);
-  assert.equal(result.pricing.roundTripFare, 42.5);
+  assert.equal(result.pricing.roundTripFare, 43);
   assert.equal(result.pricing.originalRoundTripFare, 45);
   assert.equal(result.pricing.returnDiscountAmount, 2.5);
   assert.equal(result.pricing.returnCouponDiscountAmount, 0);
@@ -330,6 +413,35 @@ test("accepts a pricing snapshot containing a Meet & Greet fee", () => {
       couponDiscountAmount: 5,
       meetAndGreetFee: 12.5,
       totalFare: 37.5,
+    }),
+    true
+  );
+});
+
+test("rounds the final fare down to a whole pound", () => {
+  const result = calculateFare({
+    car: car({ basePrice: 10 }),
+    distanceMiles: 5.245,
+    pricePerMile: 2,
+  });
+
+  assert.equal(result.breakdown.baseFare, 20.49);
+  assert.equal(result.totalFare, 20);
+});
+
+test("rounds the final fare up to a whole pound", () => {
+  const result = calculateFare({
+    car: car({ basePrice: 10 }),
+    distanceMiles: 5.25,
+    pricePerMile: 2,
+  });
+
+  assert.equal(result.breakdown.baseFare, 20.5);
+  assert.equal(result.totalFare, 21);
+  assert.equal(
+    pricingSnapshotMatchesTotal({
+      ...result.breakdown,
+      totalFare: result.totalFare,
     }),
     true
   );

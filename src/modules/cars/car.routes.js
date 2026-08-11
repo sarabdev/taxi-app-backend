@@ -21,6 +21,7 @@ carRouter.get("/", auth, requireRole("ADMIN"), async (_, res) => {
 carRouter.patch("/:id", auth, requireRole("ADMIN"), async (req, res) => {
   const car = await Car.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
+    runValidators: true,
   });
   if (!car) return res.status(404).json({ message: "Car not found" });
   res.json(car);
