@@ -14,19 +14,34 @@ function car(overrides = {}) {
     name: "Test car",
     basePrice: 10,
     discounts: [],
-    airportRates: {
-      LON: { pricePerMile: 2 },
-      MAN: { pricePerMile: 3 },
+    airportPricing: {
+      EDI: {
+        bands: [
+          { upToMiles: 10, pricePerMile: 2 },
+          { upToMiles: 60, pricePerMile: 1.75 },
+          { upToMiles: null, pricePerMile: 1.5 },
+        ],
+      },
+      GLA: {
+        bands: [
+          { upToMiles: 20, pricePerMile: 3 },
+          { upToMiles: null, pricePerMile: 2.5 },
+        ],
+      },
     },
     ...overrides,
   };
 }
 
-test("uses the configured pickup-city rate", () => {
-  assert.equal(resolvePricePerMile(car(), "MAN"), 3);
+test("uses the matching airport distance-band rate", () => {
+  assert.equal(resolvePricePerMile(car(), "EDI", 10), 2);
+  assert.equal(resolvePricePerMile(car(), "EDI", 10.01), 1.75);
+  assert.equal(resolvePricePerMile(car(), "EDI", 61), 1.5);
+  assert.equal(resolvePricePerMile(car(), "GLA", 20), 3);
+  assert.equal(resolvePricePerMile(car(), "GLA", 21), 2.5);
 });
 
-test("one-way fare is base price plus distance times city rate", () => {
+test("one-way fare is base price plus distance times airport-band rate", () => {
   const result = calculateFare({
     car: car(),
     distanceMiles: 5,
@@ -37,76 +52,20 @@ test("one-way fare is base price plus distance times city rate", () => {
   assert.equal(result.totalFare, 20);
 });
 
-test("uses the fixed up-to-5-mile price at the 5-mile boundary", () => {
-  assert.equal(
-    calculateLegFare({
-      car: car({
-        fixedPriceUpTo5Miles: 24,
-        fixedPriceUpTo10Miles: 38,
-      }),
-      distanceMiles: 5,
-      pricePerMile: 2,
-    }),
-    24
-  );
-});
-
-test("uses the fixed 5-to-10-mile price above 5 through 10 miles", () => {
-  const pricedCar = car({
-    fixedPriceUpTo5Miles: 24,
-    fixedPriceUpTo10Miles: 38,
-  });
-
-  assert.equal(
-    calculateLegFare({ car: pricedCar, distanceMiles: 5.01, pricePerMile: 2 }),
-    38
-  );
-  assert.equal(
-    calculateLegFare({ car: pricedCar, distanceMiles: 10, pricePerMile: 2 }),
-    38
-  );
-});
-
-test("uses base plus per-mile pricing above 10 miles", () => {
-  assert.equal(
-    calculateLegFare({
-      car: car({
-        fixedPriceUpTo5Miles: 24,
-        fixedPriceUpTo10Miles: 38,
-      }),
-      distanceMiles: 10.01,
-      pricePerMile: 2,
-    }),
-    30.02
-  );
-});
-
-test("falls back to per-mile pricing when a fixed band is not configured", () => {
+test("always uses base price plus complete distance times band rate", () => {
   assert.equal(
     calculateLegFare({
       car: car(),
-      distanceMiles: 4,
+      distanceMiles: 5,
       pricePerMile: 2,
     }),
-    18
-  );
-
-  assert.equal(
-    calculateLegFare({
-      car: car({ fixedPriceUpTo10Miles: 38 }),
-      distanceMiles: 4,
-      pricePerMile: 2,
-    }),
-    18
+    20
   );
 });
 
 test("prices outbound and return legs using their matching distance bands", () => {
   const result = calculateFare({
-    car: car({
-      fixedPriceUpTo5Miles: 24,
-      fixedPriceUpTo10Miles: 38,
-    }),
+    car: car(),
     distanceMiles: 4,
     pricePerMile: 2,
     returnDistanceMiles: 8,
@@ -114,9 +73,9 @@ test("prices outbound and return legs using their matching distance bands", () =
     isReturnTrip: true,
   });
 
-  assert.equal(result.breakdown.baseFare, 24);
-  assert.equal(result.breakdown.returnBaseFare, 38);
-  assert.equal(result.totalFare, 62);
+  assert.equal(result.breakdown.baseFare, 18);
+  assert.equal(result.breakdown.returnBaseFare, 34);
+  assert.equal(result.totalFare, 52);
 });
 
 test("return percentage discount applies only to the return leg", () => {
@@ -291,6 +250,65 @@ test("Meet & Greet is added as a fixed service fee after discounts", () => {
   assert.equal(result.totalFare, 23);
 });
 
+test("airport pickup fees are added after discounts and tracked internally", () => {
+  const result = calculateFare({
+    car: car(),
+    distanceMiles: 5,
+    pricePerMile: 2,
+    airportPickupFee: 10,
+    coupon: {
+      code: "SAVE50",
+      type: "PERCENTAGE",
+      value: 50,
+    },
+  });
+
+  assert.equal(result.breakdown.baseFare, 20);
+  assert.equal(result.breakdown.couponDiscountAmount, 10);
+  assert.equal(result.breakdown.airportPickupFee, 10);
+  assert.equal(result.totalFare, 20);
+});
+
+test("return pricing can charge one airport pickup fee per qualifying leg", () => {
+  const result = calculateFare({
+    car: car(),
+    distanceMiles: 5,
+    pricePerMile: 2,
+    returnDistanceMiles: 5,
+    returnPricePerMile: 2,
+    isReturnTrip: true,
+    airportPickupFee: 20,
+  });
+
+  assert.equal(result.breakdown.airportPickupFee, 20);
+  assert.equal(result.totalFare, 60);
+});
+
+test("public quotes include airport pickup fees only in displayed totals", () => {
+  const result = calculatePublicFareOptions({
+    car: car({
+      discounts: [
+        {
+          type: "PERCENTAGE",
+          value: 10,
+          condition: "RETURN_TRIP",
+          isActive: true,
+        },
+      ],
+    }),
+    distanceMiles: 5,
+    pricePerMile: 2,
+    outboundAirportPickupFee: 10,
+    returnDistanceMiles: 5,
+    returnPricePerMile: 2,
+    returnAirportPickupFee: 10,
+  });
+
+  assert.equal(result.pricing.oneWayFare, 30);
+  assert.equal(result.pricing.roundTripFare, 58);
+  assert.equal("airportPickupFee" in result.pricing, false);
+});
+
 test("coupon below its minimum spend is skipped without leaving stale pricing", () => {
   const result = calculateFare({
     car: car(),
@@ -413,6 +431,21 @@ test("accepts a pricing snapshot containing a Meet & Greet fee", () => {
       couponDiscountAmount: 5,
       meetAndGreetFee: 12.5,
       totalFare: 37.5,
+    }),
+    true
+  );
+});
+
+test("accepts a pricing snapshot containing a hidden airport pickup fee", () => {
+  assert.equal(
+    pricingSnapshotMatchesTotal({
+      baseFare: 30,
+      returnBaseFare: 0,
+      carDiscountAmount: 0,
+      couponDiscountAmount: 5,
+      meetAndGreetFee: 0,
+      airportPickupFee: 10,
+      totalFare: 35,
     }),
     true
   );

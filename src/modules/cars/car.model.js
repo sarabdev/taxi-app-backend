@@ -41,20 +41,67 @@ const DiscountSchema = new mongoose.Schema(
   { _id: false }
 );
 
-/* ───────────────────── Airport Rate ───────────────────── */
-/**
- * Stored as:
- * airportRates: {
- *   "<google_place_id>": { pricePerMile: 2.5 }
- * }
- */
-const AirportRateSchema = new mongoose.Schema(
+/* ───────────────────── Airport distance bands ───────────────────── */
+const DistanceBandSchema = new mongoose.Schema(
   {
+    upToMiles: { type: Number, default: null, min: 0.01 },
     pricePerMile: {
       type: Number,
       required: true,
       min: 0.01,
     },
+  },
+  { _id: false }
+);
+
+function validDistanceBands(bands) {
+  if (!Array.isArray(bands) || bands.length === 0) return false;
+  if (bands[bands.length - 1].upToMiles != null) return false;
+
+  return bands.every((band, index) => {
+    const price = Number(band.pricePerMile);
+    const limit = band.upToMiles == null ? null : Number(band.upToMiles);
+    const previous = index > 0 ? bands[index - 1].upToMiles : 0;
+
+    if (!Number.isFinite(price) || price <= 0) return false;
+    if (limit === null) return index === bands.length - 1;
+    return Number.isFinite(limit) && limit > Number(previous || 0);
+  });
+}
+
+const AirportPricingSchema = new mongoose.Schema(
+  {
+    bands: {
+      type: [DistanceBandSchema],
+      required: true,
+      validate: {
+        validator: validDistanceBands,
+        message: "Distance bands must have increasing limits and end with an unlimited band",
+      },
+    },
+  },
+  { _id: false }
+);
+
+const defaultAirportPricing = () => ({
+  EDI: {
+    bands: [
+      { upToMiles: 10, pricePerMile: 3 },
+      { upToMiles: null, pricePerMile: 3 },
+    ],
+  },
+  GLA: {
+    bands: [
+      { upToMiles: 10, pricePerMile: 3 },
+      { upToMiles: null, pricePerMile: 3 },
+    ],
+  },
+});
+
+const ScotlandPricingSchema = new mongoose.Schema(
+  {
+    EDI: { type: AirportPricingSchema, required: true },
+    GLA: { type: AirportPricingSchema, required: true },
   },
   { _id: false }
 );
@@ -100,24 +147,11 @@ const CarSchema = new mongoose.Schema(
       min: 0,
     },
 
-    /* Fixed short-distance fares (per leg) */
-    fixedPriceUpTo5Miles: {
-      type: Number,
-      default: null,
-      min: 0,
-    },
-
-    fixedPriceUpTo10Miles: {
-      type: Number,
-      default: null,
-      min: 0,
-    },
-
-    /* Airport-based Per-Mile Pricing */
-    airportRates: {
-      type: Map,
-      of: AirportRateSchema,
-      default: {},
+    /* Edinburgh/Glasgow distance-band pricing */
+    airportPricing: {
+      type: ScotlandPricingSchema,
+      default: defaultAirportPricing,
+      required: true,
     },
 
     /* Meta */

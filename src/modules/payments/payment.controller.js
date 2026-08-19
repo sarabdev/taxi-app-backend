@@ -40,7 +40,7 @@ export async function createPaymentIntent(req, res) {
       currency: "gbp",
       automatic_payment_methods: { enabled: true },
       metadata: {
-        pricingVersion: "3",
+        pricingVersion: "4",
         carId: metadataValue(carId),
         fromPlaceId: metadataValue(fromPlaceId),
         toPlaceId: metadataValue(toPlaceId),
@@ -68,6 +68,9 @@ export async function createPaymentIntent(req, res) {
         ),
         meetAndGreetFee: metadataValue(
           pricing.breakdown.meetAndGreetFee
+        ),
+        airportPickupFee: metadataValue(
+          pricing.breakdown.airportPickupFee
         ),
         totalFare: metadataValue(pricing.totalFare),
         appliedCoupon: metadataValue(pricing.appliedCoupon),

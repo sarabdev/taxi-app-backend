@@ -1,7 +1,10 @@
 import { Car } from "../cars/car.model.js";
 import { findValidCoupon } from "../coupons/coupon.service.js";
-import { calculateDistanceMiles, detectCityCode } from "./distance.service.js";
-import { getMeetAndGreetPrice } from "../settings/settings.service.js";
+import { calculateRoutePricingContext } from "./distance.service.js";
+import {
+  getAirportPickupFee,
+  getMeetAndGreetPrice,
+} from "../settings/settings.service.js";
 
 function toMoney(value) {
   return Number(Number(value || 0).toFixed(2));
@@ -18,6 +21,7 @@ export function pricingSnapshotMatchesTotal(pricing) {
     pricing?.carDiscountAmount || 0,
     pricing?.couponDiscountAmount || 0,
     pricing?.meetAndGreetFee || 0,
+    pricing?.airportPickupFee || 0,
     pricing?.totalFare,
   ].map(Number);
 
@@ -29,11 +33,17 @@ export function pricingSnapshotMatchesTotal(pricing) {
     carDiscount,
     couponDiscount,
     meetAndGreetFee,
+    airportPickupFee,
     totalFare,
   ] =
     values;
   const recomposedTotal = toMoney(
-    baseFare + returnBaseFare - carDiscount - couponDiscount + meetAndGreetFee
+    baseFare +
+      returnBaseFare -
+      carDiscount -
+      couponDiscount +
+      meetAndGreetFee +
+      airportPickupFee
   );
 
   const suppliedTotal = toMoney(totalFare);
@@ -62,13 +72,6 @@ function applyDiscount(amount, discount) {
   return toMoney(Math.min(amount, discountAmount));
 }
 
-function configuredFixedPrice(value) {
-  if (value === null || value === undefined || value === "") return null;
-
-  const price = Number(value);
-  return Number.isFinite(price) && price >= 0 ? price : null;
-}
-
 export function calculateLegFare({ car, distanceMiles, pricePerMile }) {
   const distance = Number(distanceMiles);
   const rate = Number(pricePerMile);
@@ -85,47 +88,36 @@ export function calculateLegFare({ car, distanceMiles, pricePerMile }) {
     throw new Error("Invalid pricing input");
   }
 
-  const upTo5Price = configuredFixedPrice(car.fixedPriceUpTo5Miles);
-  if (distance <= 5) {
-    return upTo5Price === null
-      ? toMoney(basePrice + distance * rate)
-      : toMoney(upTo5Price);
-  }
-
-  const upTo10Price = configuredFixedPrice(car.fixedPriceUpTo10Miles);
-  if (distance <= 10) {
-    return upTo10Price === null
-      ? toMoney(basePrice + distance * rate)
-      : toMoney(upTo10Price);
-  }
-
   return toMoney(basePrice + distance * rate);
 }
 
-function getConfiguredRates(car) {
-  const entries = car.airportRates instanceof Map
-    ? [...car.airportRates.entries()]
-    : Object.entries(car.airportRates || {});
+export function resolvePricePerMile(car, airportCode, distanceMiles) {
+  const distance = Number(distanceMiles);
+  const bands = car.airportPricing?.[airportCode]?.bands;
 
-  return entries
-    .map(([code, rate]) => [code, Number(rate?.pricePerMile)])
-    .filter(([, rate]) => Number.isFinite(rate) && rate > 0);
-}
-
-export function resolvePricePerMile(car, cityCode) {
-  const configuredRates = getConfiguredRates(car);
-  const selectedRate = configuredRates.find(([code]) => code === cityCode)?.[1];
-
-  if (selectedRate != null) return selectedRate;
-
-  const legacyRate = Number(car.pricePerMile);
-  if (Number.isFinite(legacyRate) && legacyRate > 0) return legacyRate;
-
-  if (configuredRates.length > 0) {
-    return Math.min(...configuredRates.map(([, rate]) => rate));
+  if (!Number.isFinite(distance) || distance <= 0) {
+    throw new Error("Invalid journey distance");
   }
 
-  throw new Error(`No per-mile rate configured for ${car.name || "this car"}`);
+  if (!Array.isArray(bands) || bands.length === 0) {
+    throw new Error(
+      `No ${airportCode || "airport"} distance bands configured for ${car.name || "this car"}`
+    );
+  }
+
+  const matchingBand = bands.find((band) => {
+    const limit = band.upToMiles;
+    return limit == null || distance <= Number(limit);
+  });
+  const rate = Number(matchingBand?.pricePerMile);
+
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new Error(
+      `No distance band covers ${distance} miles for ${car.name || "this car"}`
+    );
+  }
+
+  return rate;
 }
 
 export function isExactReverseRoute({
@@ -157,6 +149,7 @@ export function calculateFare({
   isReturnTrip = false,
   coupon = null,
   meetAndGreetFee = 0,
+  airportPickupFee = 0,
 }) {
   const outboundDistance = Number(distanceMiles);
   const outboundRate = Number(pricePerMile);
@@ -232,7 +225,8 @@ export function calculateFare({
   }
 
   const serviceFee = toMoney(Math.max(0, Number(meetAndGreetFee) || 0));
-  total = toWholePrice(total + serviceFee);
+  const pickupFee = toMoney(Math.max(0, Number(airportPickupFee) || 0));
+  total = toWholePrice(total + serviceFee + pickupFee);
 
   return {
     breakdown: {
@@ -246,6 +240,7 @@ export function calculateFare({
       carDiscountAmount,
       couponDiscountAmount,
       meetAndGreetFee: serviceFee,
+      airportPickupFee: pickupFee,
     },
     totalFare: total,
     appliedCoupon,
@@ -256,20 +251,26 @@ export function calculatePublicFareOptions({
   car,
   distanceMiles,
   pricePerMile,
+  airportCode,
+  outboundAirportPickupFee = 0,
   returnDistanceMiles,
   returnPricePerMile,
+  returnAirportCode,
+  returnAirportPickupFee = 0,
   coupon = null,
 }) {
   const oneWayBaseQuote = calculateFare({
     car,
     distanceMiles,
     pricePerMile,
+    airportPickupFee: outboundAirportPickupFee,
   });
   const oneWayQuote = calculateFare({
     car,
     distanceMiles,
     pricePerMile,
     coupon,
+    airportPickupFee: outboundAirportPickupFee,
   });
   const supportsReturnTrip = Boolean(
     car.discounts?.find(
@@ -284,6 +285,8 @@ export function calculatePublicFareOptions({
     returnDistanceMiles,
     returnPricePerMile,
     isReturnTrip: true,
+    airportPickupFee:
+      Number(outboundAirportPickupFee) + Number(returnAirportPickupFee),
   };
   const returnBaseQuote = supportsReturnTrip
     ? calculateFare(returnInput)
@@ -294,7 +297,8 @@ export function calculatePublicFareOptions({
   const undiscountedRoundTripFare = returnBaseQuote
     ? toMoney(
         returnBaseQuote.breakdown.baseFare +
-          returnBaseQuote.breakdown.returnBaseFare
+          returnBaseQuote.breakdown.returnBaseFare +
+          returnBaseQuote.breakdown.airportPickupFee
       )
     : null;
 
@@ -303,14 +307,19 @@ export function calculatePublicFareOptions({
     pricing: {
       distanceMiles,
       basePrice: Number(car.basePrice || 0),
+      airportCode,
       pricePerMile,
       returnPricePerMile,
+      returnAirportCode,
       oneWayFare: oneWayQuote.totalFare,
       originalOneWayFare:
         oneWayQuote.breakdown.couponDiscountAmount > 0
           ? oneWayBaseQuote.totalFare
           : oneWayQuote.breakdown.carDiscountAmount > 0
-            ? oneWayQuote.breakdown.baseFare
+            ? toMoney(
+                oneWayQuote.breakdown.baseFare +
+                  oneWayQuote.breakdown.airportPickupFee
+              )
             : null,
       oneWayDiscountAmount: oneWayQuote.breakdown.carDiscountAmount,
       oneWayCouponDiscountAmount:
@@ -353,10 +362,10 @@ export async function calculatePrice({
     throw new Error("carId, fromPlaceId and toPlaceId are required");
   }
 
-  const outboundPromise = Promise.all([
-    calculateDistanceMiles({ fromPlaceId, toPlaceId }),
-    detectCityCode(fromPlaceId),
-  ]);
+  const outboundPromise = calculateRoutePricingContext({
+    fromPlaceId,
+    toPlaceId,
+  });
 
   const inboundFrom = returnFromPlaceId || toPlaceId;
   const inboundTo = returnToPlaceId || fromPlaceId;
@@ -367,23 +376,21 @@ export async function calculatePrice({
     returnToPlaceId: inboundTo,
   });
   const inboundPromise = isReturnTrip
-    ? Promise.all([
-        shouldReuseOutboundDistance
-          ? outboundPromise.then(([distance]) => distance)
-          : calculateDistanceMiles({
-              fromPlaceId: inboundFrom,
-              toPlaceId: inboundTo,
-            }),
-        detectCityCode(inboundFrom),
-      ])
-    : Promise.resolve([0, null]);
+    ? shouldReuseOutboundDistance
+      ? outboundPromise
+      : calculateRoutePricingContext({
+          fromPlaceId: inboundFrom,
+          toPlaceId: inboundTo,
+        })
+    : Promise.resolve({ distanceMiles: 0, airportCode: null });
 
   const [
     car,
-    [distanceMiles, cityCode],
-    [returnDistanceMiles, returnCityCode],
+    outboundContext,
+    returnContext,
     coupon,
     configuredMeetAndGreetPrice,
+    configuredAirportPickupFee,
   ] =
     await Promise.all([
       Car.findById(carId),
@@ -391,20 +398,43 @@ export async function calculatePrice({
       inboundPromise,
       findCoupon(couponCode),
       meetAndGreet ? getMeetAndGreetPrice() : Promise.resolve(0),
+      getAirportPickupFee(),
     ]);
 
   if (!car) throw new Error("Car not found");
 
-  return calculateFare({
+  const { distanceMiles, airportCode } = outboundContext;
+  const {
+    distanceMiles: returnDistanceMiles,
+    airportCode: returnAirportCode,
+  } = returnContext;
+  const outboundAirportPickupFee = outboundContext.pickupAirportCode
+    ? configuredAirportPickupFee
+    : 0;
+  const returnPickupAirportCode = shouldReuseOutboundDistance
+    ? outboundContext.dropoffAirportCode
+    : returnContext.pickupAirportCode;
+  const returnAirportPickupFee =
+    isReturnTrip && returnPickupAirportCode ? configuredAirportPickupFee : 0;
+
+  const fare = calculateFare({
     car,
     distanceMiles,
-    pricePerMile: resolvePricePerMile(car, cityCode),
+    pricePerMile: resolvePricePerMile(car, airportCode, distanceMiles),
     returnDistanceMiles,
     returnPricePerMile: isReturnTrip
-      ? resolvePricePerMile(car, returnCityCode)
+      ? resolvePricePerMile(car, returnAirportCode, returnDistanceMiles)
       : 0,
     isReturnTrip,
     coupon,
     meetAndGreetFee: meetAndGreet ? configuredMeetAndGreetPrice : 0,
+    airportPickupFee:
+      Number(outboundAirportPickupFee) + Number(returnAirportPickupFee),
   });
+
+  return {
+    ...fare,
+    airportCode,
+    returnAirportCode: isReturnTrip ? returnAirportCode : null,
+  };
 }

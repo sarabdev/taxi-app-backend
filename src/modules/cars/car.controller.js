@@ -1,12 +1,13 @@
 import fs from "fs";
 import { Car } from "./car.model.js";
-import { calculateDistanceMiles, detectCityCode } from "../pricing/distance.service.js";
+import { calculateRoutePricingContext } from "../pricing/distance.service.js";
 import {
   calculatePublicFareOptions,
   getReusedReturnDistance,
   resolvePricePerMile,
 } from "../pricing/pricing.service.js";
 import { findValidCoupon } from "../coupons/coupon.service.js";
+import { getAirportPickupFee } from "../settings/settings.service.js";
 
 export async function createCar(req, res) {
   try {
@@ -75,19 +76,13 @@ export async function listPublicCarsWithPricing(req) {
     throw new Error("fromPlaceId and toPlaceId are required");
   }
 
-  const [
-    distanceMiles,
-    cityCode,
-    returnCityCode,
-    cars,
-    coupon,
-  ] = await Promise.all([
-    calculateDistanceMiles({ fromPlaceId, toPlaceId }),
-    detectCityCode(fromPlaceId),
-    detectCityCode(toPlaceId),
+  const [routeContext, cars, coupon, configuredAirportPickupFee] = await Promise.all([
+    calculateRoutePricingContext({ fromPlaceId, toPlaceId }),
     Car.find(),
     couponCode ? findValidCoupon(couponCode) : Promise.resolve(null),
+    getAirportPickupFee(),
   ]);
+  const { distanceMiles, airportCode } = routeContext;
   const returnDistanceMiles = getReusedReturnDistance({
     outboundDistanceMiles: distanceMiles,
     fromPlaceId,
@@ -95,16 +90,30 @@ export async function listPublicCarsWithPricing(req) {
     returnFromPlaceId: toPlaceId,
     returnToPlaceId: fromPlaceId,
   });
+  const outboundAirportPickupFee = routeContext.pickupAirportCode
+    ? configuredAirportPickupFee
+    : 0;
+  const returnAirportPickupFee = routeContext.dropoffAirportCode
+    ? configuredAirportPickupFee
+    : 0;
 
   const pricedCars = cars.map((car) => {
-    const pricePerMile = resolvePricePerMile(car, cityCode);
-    const returnPricePerMile = resolvePricePerMile(car, returnCityCode);
+    const pricePerMile = resolvePricePerMile(car, airportCode, distanceMiles);
+    const returnPricePerMile = resolvePricePerMile(
+      car,
+      airportCode,
+      returnDistanceMiles
+    );
     const fareOptions = calculatePublicFareOptions({
       car,
       distanceMiles,
       pricePerMile,
+      airportCode,
+      outboundAirportPickupFee,
       returnDistanceMiles,
       returnPricePerMile,
+      returnAirportCode: airportCode,
+      returnAirportPickupFee,
       coupon,
     });
 
@@ -116,6 +125,7 @@ export async function listPublicCarsWithPricing(req) {
 
   return {
     distanceMiles,
+    airportCode,
     cars: pricedCars,
   };
 }

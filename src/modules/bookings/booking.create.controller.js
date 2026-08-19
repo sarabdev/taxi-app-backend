@@ -29,7 +29,7 @@ function assertPaymentMatchesBooking(paymentIntent, request) {
   const requestCoupon = String(request.couponCode || "").toUpperCase();
   const expectedMeetAndGreet = request.meetAndGreet ? "true" : "false";
   const matches =
-    metadata.pricingVersion === "3" &&
+    ["3", "4"].includes(metadata.pricingVersion) &&
     metadata.carId === String(request.carId) &&
     metadata.fromPlaceId === String(request.fromPlaceId || "") &&
     metadata.toPlaceId === String(request.toPlaceId || "") &&
@@ -59,6 +59,7 @@ function assertPaymentMatchesBooking(paymentIntent, request) {
     carDiscountAmount: metadataNumber(metadata, "carDiscountAmount"),
     couponDiscountAmount: metadataNumber(metadata, "couponDiscountAmount"),
     meetAndGreetFee: metadataNumber(metadata, "meetAndGreetFee"),
+    airportPickupFee: metadataNumber(metadata, "airportPickupFee"),
     totalFare,
     appliedCoupon: metadata.appliedCoupon || null,
   };
