@@ -49,7 +49,7 @@ export async function assignDriver(req, res) {
     return res.status(404).json({ message: "Driver not found" });
   }
 
-  const booking = await Booking.findOneAndUpdate(
+  let booking = await Booking.findOneAndUpdate(
     { _id: req.params.id, status: { $ne: "COMPLETED" } },
     { $set: { assignedDriverId: driver._id, status: "ASSIGNED" } },
     { new: true, runValidators: true }
@@ -76,6 +76,8 @@ export async function assignDriver(req, res) {
   } catch (error) {
     console.error("Assignment activity log failed:", error);
   }
+
+  booking = await populatedBooking(booking._id);
 
   if (driver.userId?.email) {
     const email = driverAssignedEmail({ booking });

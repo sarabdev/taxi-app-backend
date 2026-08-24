@@ -2,8 +2,8 @@ import {
   bookingReference,
   emailLayout,
   escapeHtml,
+  fullBookingDetails,
   formatMoney,
-  journeySummary,
 } from "./email.helpers.js";
 
 export function adminBookingCompletedEmail({
@@ -20,10 +20,8 @@ export function adminBookingCompletedEmail({
       preheader: `Booking ${bookingReference(booking)} has been completed.`,
       content: `
       <p style="margin:0 0 10px;"><b style="color:#0f172a;">Booking reference:</b> ${bookingReference(booking)}</p>
-      <p style="margin:0 0 10px;"><b style="color:#0f172a;">Customer:</b> ${escapeHtml(booking.customerName)}</p>
-      <p style="margin:0 0 10px;"><b style="color:#0f172a;">Customer email:</b> ${escapeHtml(booking.customerEmail)}</p>
       <p style="margin:0 0 10px;"><b style="color:#0f172a;">Driver:</b> ${escapeHtml(booking.assignedDriverId?.name || "Unknown")}</p>
-      ${journeySummary(booking)}
+      ${fullBookingDetails(booking)}
       <div style="margin-top:18px;padding:18px;background:#fffbeb;border:1px solid #fde68a;border-radius:14px;">
         <p style="margin:0 0 8px;"><b style="color:#0f172a;">Total fare:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
         <p style="margin:0 0 8px;"><b style="color:#0f172a;">Driver earnings (80%):</b> ${formatMoney(driverShare)}</p>

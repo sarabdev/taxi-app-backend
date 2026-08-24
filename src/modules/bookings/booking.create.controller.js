@@ -119,7 +119,7 @@ export async function createBooking(req, res) {
       meetAndGreet: Boolean(flight?.meetAndGreet),
     });
 
-    const booking = await Booking.create({
+    let booking = await Booking.create({
       customerName,
       customerEmail,
       customerPhone,
@@ -158,6 +158,8 @@ export async function createBooking(req, res) {
       },
       pricing,
     });
+
+    booking = await Booking.findById(booking._id).populate("carId");
 
     const customerConfirmation = bookingConfirmedEmail({ booking });
     const deliveries = [

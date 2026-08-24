@@ -87,3 +87,90 @@ export function journeySummary(booking) {
     <p style="margin:0;"><b style="color:#0f172a;">Return booked for:</b> ${escapeHtml(booking.returnTrip.pickupDate)} ${escapeHtml(booking.returnTrip.pickupTime)}</p>
   </div>`;
 }
+
+function detailRow(label, value) {
+  return `<tr>
+    <td style="padding:6px 10px 6px 0;vertical-align:top;color:#64748b;white-space:nowrap;">${escapeHtml(label)}</td>
+    <td style="padding:6px 0;vertical-align:top;color:#0f172a;font-weight:600;word-break:break-word;">${value}</td>
+  </tr>`;
+}
+
+function detailSection(title, rows) {
+  return `<div style="margin:18px 0;padding:18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;">
+    <h2 style="margin:0 0 10px;font-size:16px;line-height:22px;color:#0f172a;">${escapeHtml(title)}</h2>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size:14px;line-height:20px;">${rows.join("")}</table>
+  </div>`;
+}
+
+function displayDateTime(date, time) {
+  if (!date && !time) return "—";
+  return escapeHtml([date, time].filter(Boolean).join(" "));
+}
+
+function extraItemLabel(value) {
+  const labels = {
+    none: "None",
+    extra_large_bag_35kg: "Extra-large bag (35kg)",
+    wheelchair: "Wheelchair",
+    pram: "Pram",
+    golf_bag: "Golf bag",
+    other: "Other",
+  };
+  return labels[value] || value || "None";
+}
+
+/** The same confirmed-booking summary shown to the customer after payment. */
+export function fullBookingDetails(booking) {
+  const luggage = booking.luggage || {};
+  const flight = booking.flight || {};
+  const carName = booking.carId?.name || booking.carId || "—";
+  const bagCount =
+    Number(luggage.largeBags23kg || 0) +
+    Number(luggage.smallBags15kg || 0) +
+    Number(luggage.shoulderBags || 0);
+  const luggageDescription = [
+    `${bagCount} ${bagCount === 1 ? "item" : "items"}`,
+    `Large (23kg): ${Number(luggage.largeBags23kg || 0)}`,
+    `Small (15kg): ${Number(luggage.smallBags15kg || 0)}`,
+    `Shoulder/hand carry: ${Number(luggage.shoulderBags || 0)}`,
+    luggage.extraLargeItemType && luggage.extraLargeItemType !== "none"
+      ? `Extra item: ${extraItemLabel(luggage.extraLargeItemType)}`
+      : null,
+    luggage.extraLargeItemNote ? `Note: ${luggage.extraLargeItemNote}` : null,
+  ].filter(Boolean).join("; ");
+
+  return [
+    detailSection("Journey details", [
+      detailRow("Pickup", escapeHtml(booking.pickupLocation || "—")),
+      detailRow("Destination", escapeHtml(booking.dropoffLocation || "—")),
+      detailRow("Pickup date", displayDateTime(booking.pickupDate)),
+      detailRow("Pickup time", displayDateTime(null, booking.pickupTime)),
+      ...(booking.isReturnTrip && booking.returnTrip
+        ? [
+            detailRow("Return pickup", escapeHtml(booking.returnTrip.pickupLocation || "—")),
+            detailRow("Return destination", escapeHtml(booking.returnTrip.dropoffLocation || "—")),
+            detailRow("Return date", displayDateTime(booking.returnTrip.pickupDate)),
+            detailRow("Return time", displayDateTime(null, booking.returnTrip.pickupTime)),
+          ]
+        : []),
+    ]),
+    detailSection("Passenger details", [
+      detailRow("Lead passenger", escapeHtml(booking.customerName || "—")),
+      detailRow("Confirmation email", escapeHtml(booking.customerEmail || "—")),
+      detailRow("Phone number", escapeHtml(booking.customerPhone || "—")),
+      detailRow("Passengers", escapeHtml(booking.passengers ?? 1)),
+      detailRow("Luggage", escapeHtml(luggageDescription)),
+    ]),
+    detailSection("Order summary", [
+      detailRow("Vehicle", escapeHtml(carName)),
+      detailRow("Journey type", booking.isReturnTrip ? "Return journey" : "One way"),
+      ...(flight.flightNumber
+        ? [detailRow("Flight number", escapeHtml(flight.flightNumber))]
+        : []),
+      ...(flight.meetAndGreet
+        ? [detailRow("Meet & Greet", "Service included")]
+        : []),
+      detailRow("Total paid", `<span style="font-size:17px;">${formatMoney(booking.pricing?.totalFare)}</span>`),
+    ]),
+  ].join("");
+}
