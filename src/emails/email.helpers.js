@@ -38,7 +38,7 @@ export function emailLayout({ title, preheader = "", content }) {
             <tr>
               <td style="background:#0f172a;padding:24px 28px;">
                 <div style="font-family:Arial,sans-serif;font-size:22px;line-height:28px;font-weight:800;color:#ffffff;letter-spacing:-0.3px;">
-                  MYAIRPORT<span style="color:#d4af37;">TAXIS</span>
+                  Zalt
                 </div>
                 <div style="margin-top:5px;font-family:Arial,sans-serif;font-size:11px;line-height:16px;color:#94a3b8;text-transform:uppercase;letter-spacing:1.8px;">
                   Premium Airport Transfers
@@ -55,7 +55,7 @@ export function emailLayout({ title, preheader = "", content }) {
             </tr>
             <tr>
               <td style="border-top:1px solid #e2e8f0;background:#f8fafc;padding:20px 28px;font-family:Arial,sans-serif;font-size:12px;line-height:19px;color:#64748b;">
-                <strong style="color:#0f172a;">My Airport Taxis</strong><br />
+                <strong style="color:#0f172a;">Zalt</strong><br />
                 Need help? Email
                 <a href="mailto:support@myairporttaxis.uk" style="color:#0f172a;font-weight:700;text-decoration:underline;">support@myairporttaxis.uk</a>
               </td>

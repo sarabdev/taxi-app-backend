@@ -131,7 +131,7 @@ test("all booking emails use the shared branded layout", () => {
 
   for (const email of emails) {
     assert.match(email.html, /^<!doctype html>/);
-    assert.match(email.html, /MYAIRPORT/);
+    assert.match(email.html, /Zalt/);
     assert.match(email.html, /support@myairporttaxis\.uk/);
     assert.match(email.html, /max-width:620px/);
   }

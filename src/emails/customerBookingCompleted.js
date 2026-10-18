@@ -18,7 +18,7 @@ export function customerBookingCompletedEmail({ booking }) {
       <p style="margin:0 0 14px;">Your airport taxi booking has been marked as completed.</p>
       <p style="margin:0 0 14px;"><b style="color:#0f172a;">Booking reference:</b> ${bookingReference(booking)}</p>
       ${fullBookingDetails(booking)}
-      <p style="margin:0;">Thank you for travelling with My Airport Taxis.</p>
+      <p style="margin:0;">Thank you for travelling with Zalt.</p>
       `,
     }),
   };
