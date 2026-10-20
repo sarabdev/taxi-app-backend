@@ -136,3 +136,34 @@ test("all booking emails use the shared branded layout", () => {
     assert.match(email.html, /max-width:620px/);
   }
 });
+
+test("booking emails list intermediate stops in order and escape them", () => {
+  const multiStopBooking = {
+    ...booking,
+    stops: [
+      { location: "Hotel <One>", placeId: "stop-1" },
+      { location: "  ", placeId: "blank" },
+      { location: "Office Two", placeId: "stop-2" },
+    ],
+  };
+
+  for (const email of [
+    bookingConfirmedEmail({ booking: multiStopBooking }),
+    adminBookingConfirmedEmail({ booking: multiStopBooking }),
+    driverAssignedEmail({ booking: multiStopBooking }),
+  ]) {
+    assert.match(email.html, /Stop 1/);
+    assert.match(email.html, /Hotel &lt;One&gt;/);
+    assert.match(email.html, /Stop 2/);
+    assert.match(email.html, /Office Two/);
+    assert.doesNotMatch(email.html, /Stop 3/);
+    assert.ok(
+      email.html.indexOf("Hotel &lt;One&gt;") < email.html.indexOf("Office Two")
+    );
+  }
+});
+
+test("booking emails without stops show no stop rows", () => {
+  const email = bookingConfirmedEmail({ booking });
+  assert.doesNotMatch(email.html, /Stop 1/);
+});

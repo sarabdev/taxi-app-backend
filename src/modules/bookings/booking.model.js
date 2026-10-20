@@ -59,6 +59,21 @@ const PricingSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/* ───────────────────── Intermediate stop ───────────────────── */
+const StopSchema = new mongoose.Schema(
+  {
+    location: {
+      type: String,
+      default: "",
+    },
+    placeId: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: false }
+);
+
 /* ───────────────────── Luggage ───────────────────── */
 const LuggageSchema = new mongoose.Schema(
   {
@@ -185,6 +200,11 @@ const BookingSchema = new mongoose.Schema(
     dropoffPlaceId: {
       type: String,
       default: "",
+    },
+    /* Ordered intermediate stops between pickup and drop-off */
+    stops: {
+      type: [StopSchema],
+      default: [],
     },
     pickupDate: {
       type: String,

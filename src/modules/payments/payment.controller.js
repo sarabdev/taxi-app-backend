@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { calculatePrice } from "../pricing/pricing.service.js";
+import { normalizeStopPlaceIds } from "../pricing/distance.service.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -13,6 +14,7 @@ export async function createPaymentIntent(req, res) {
       carId,
       fromPlaceId,
       toPlaceId,
+      stops,
       returnFromPlaceId,
       returnToPlaceId,
       isReturnTrip = false,
@@ -20,10 +22,13 @@ export async function createPaymentIntent(req, res) {
       meetAndGreet = false,
     } = req.body;
 
+    const stopPlaceIds = normalizeStopPlaceIds(stops);
+
     const pricing = await calculatePrice({
       carId,
       fromPlaceId,
       toPlaceId,
+      stops: stopPlaceIds,
       returnFromPlaceId,
       returnToPlaceId,
       isReturnTrip,
@@ -40,10 +45,11 @@ export async function createPaymentIntent(req, res) {
       currency: "gbp",
       automatic_payment_methods: { enabled: true },
       metadata: {
-        pricingVersion: "4",
+        pricingVersion: "5",
         carId: metadataValue(carId),
         fromPlaceId: metadataValue(fromPlaceId),
         toPlaceId: metadataValue(toPlaceId),
+        stopsPlaceIds: stopPlaceIds.join(","),
         returnFromPlaceId: metadataValue(returnFromPlaceId),
         returnToPlaceId: metadataValue(returnToPlaceId),
         isReturnTrip: metadataValue(Boolean(isReturnTrip)),

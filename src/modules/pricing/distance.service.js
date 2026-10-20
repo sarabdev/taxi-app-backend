@@ -7,6 +7,34 @@ export const SCOTLAND_AIRPORTS = [
 
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
+// Google Distance Matrix allows up to 100 elements (origins × destinations) per
+// request. With N intermediate stops a context lookup needs
+// (N + 2) origins × (N + 1 + airports) destinations, so this keeps us well
+// within that limit while covering any realistic multi-stop journey.
+export const MAX_STOPS = 5;
+
+/**
+ * Cleans an arbitrary stops payload into an ordered list of non-empty place ids,
+ * capped at MAX_STOPS. Shared by every caller so the priced route, the payment
+ * metadata and the stored booking always agree on the exact same waypoints.
+ */
+export function normalizeStopPlaceIds(stopPlaceIds) {
+  if (!Array.isArray(stopPlaceIds)) return [];
+
+  return stopPlaceIds
+    .map((value) =>
+      typeof value === "object" && value !== null
+        ? String(value.placeId || "").trim()
+        : String(value || "").trim()
+    )
+    .filter(Boolean)
+    .slice(0, MAX_STOPS);
+}
+
+function toPlaceParams(placeIds) {
+  return placeIds.map((placeId) => `place_id:${placeId}`);
+}
+
 async function fetchDistanceMatrix({ origins, destinations }) {
   const params = new URLSearchParams({
     origins: origins.join("|"),
@@ -59,21 +87,44 @@ export function supportedAirportCodeFromPlace(place) {
   return null;
 }
 /**
- * Calculate distance in miles using Google Distance Matrix
+ * Sums the consecutive legs of a route whose points are passed as both the
+ * origins (every point except the last) and destinations (every point except
+ * the first). Leg i is therefore the diagonal element rows[i].elements[i].
+ */
+function sumRouteLegMiles(rows, legCount) {
+  let total = 0;
+
+  for (let legIndex = 0; legIndex < legCount; legIndex += 1) {
+    const legMiles = elementMiles(rows?.[legIndex]?.elements?.[legIndex]);
+    if (legMiles === null) return null;
+    total += legMiles;
+  }
+
+  return Number(total.toFixed(2));
+}
+
+/**
+ * Calculate total journey distance in miles using Google Distance Matrix,
+ * summing every leg of from → stops → to. With no stops this is a single
+ * from → to leg, identical to the original behaviour.
  */
 export async function calculateDistanceMiles({
   fromPlaceId,
   toPlaceId,
+  stopPlaceIds = [],
 }) {
   if (!fromPlaceId || !toPlaceId) {
     throw new Error("fromPlaceId and toPlaceId are required");
   }
 
+  const stops = normalizeStopPlaceIds(stopPlaceIds);
+  const points = [fromPlaceId, ...stops, toPlaceId];
+
   const rows = await fetchDistanceMatrix({
-    origins: [`place_id:${fromPlaceId}`],
-    destinations: [`place_id:${toPlaceId}`],
+    origins: toPlaceParams(points.slice(0, -1)),
+    destinations: toPlaceParams(points.slice(1)),
   });
-  const miles = elementMiles(rows?.[0]?.elements?.[0]);
+  const miles = sumRouteLegMiles(rows, points.length - 1);
 
   if (miles === null) {
     throw new Error("Unable to calculate distance");
@@ -98,25 +149,39 @@ export function selectNearestAirportCode(airportDistances) {
 
 /**
  * Gets the booked distance and the nearest supported airport in one API call.
- * Both route endpoints are compared so an explicitly used airport always wins.
+ * The journey distance is the sum of every leg of from → stops → to, and every
+ * route point (pickup, each stop and drop-off) is compared to the airports so an
+ * explicitly used airport always wins. With no stops this is identical to the
+ * original two-point lookup.
  */
-export async function calculateRoutePricingContext({ fromPlaceId, toPlaceId }) {
+export async function calculateRoutePricingContext({
+  fromPlaceId,
+  toPlaceId,
+  stopPlaceIds = [],
+}) {
   if (!fromPlaceId || !toPlaceId) {
     throw new Error("fromPlaceId and toPlaceId are required");
   }
 
+  const stops = normalizeStopPlaceIds(stopPlaceIds);
+  const points = [fromPlaceId, ...stops, toPlaceId];
+  const nextPoints = points.slice(1);
+
   const [rows, pickupPlace, dropoffPlace] = await Promise.all([
     fetchDistanceMatrix({
-      origins: [`place_id:${fromPlaceId}`, `place_id:${toPlaceId}`],
+      // Origins are every route point so each one can be measured against the
+      // airports; destinations are the "next" point of each leg followed by the
+      // airports. Leg i is then rows[i].elements[i].
+      origins: toPlaceParams(points),
       destinations: [
-        `place_id:${toPlaceId}`,
+        ...toPlaceParams(nextPoints),
         ...SCOTLAND_AIRPORTS.map((airport) => airport.coordinates),
       ],
     }),
     fetchPlaceDetails(fromPlaceId),
     fetchPlaceDetails(toPlaceId),
   ]);
-  const distanceMiles = elementMiles(rows?.[0]?.elements?.[0]);
+  const distanceMiles = sumRouteLegMiles(rows, points.length - 1);
 
   if (distanceMiles === null) {
     throw new Error("Unable to calculate distance");
@@ -124,7 +189,7 @@ export async function calculateRoutePricingContext({ fromPlaceId, toPlaceId }) {
 
   const airportDistances = Object.fromEntries(
     SCOTLAND_AIRPORTS.map((airport, airportIndex) => {
-      const destinationIndex = airportIndex + 1;
+      const destinationIndex = nextPoints.length + airportIndex;
       const endpointDistances = rows.map((row) =>
         elementMiles(row?.elements?.[destinationIndex])
       );

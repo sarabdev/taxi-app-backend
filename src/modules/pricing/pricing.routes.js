@@ -14,11 +14,12 @@ pricingRouter.post("/calculate", async (req, res) => {
 
 pricingRouter.post("/distance", async (req, res) => {
   try {
-    const { fromPlaceId, toPlaceId } = req.body;
+    const { fromPlaceId, toPlaceId, stops } = req.body;
 
     const distanceMiles = await calculateDistanceMiles({
       fromPlaceId,
       toPlaceId,
+      stopPlaceIds: stops,
     });
 
     res.json({ distanceMiles });

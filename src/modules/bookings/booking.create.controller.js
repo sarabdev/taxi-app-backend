@@ -4,6 +4,7 @@ import { sendMail } from "../../utils/mailer.js";
 import { bookingConfirmedEmail } from "../../emails/bookingConfirmed.js";
 import { adminBookingConfirmedEmail } from "../../emails/adminBookingConfirmed.js";
 import { pricingSnapshotMatchesTotal } from "../pricing/pricing.service.js";
+import { MAX_STOPS } from "../pricing/distance.service.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const BOOKING_ADMIN_EMAIL = "myairporttaxi86@gmail.com";
@@ -14,6 +15,23 @@ function metadataNumber(metadata, key) {
     throw new Error("Invalid payment pricing snapshot");
   }
   return value;
+}
+
+/**
+ * Keeps only stops that were chosen from address suggestions (have a place id),
+ * in order and capped exactly as the pricing service does, so the stored route
+ * is always the route that was priced and paid for.
+ */
+function normalizeStops(stops) {
+  if (!Array.isArray(stops)) return [];
+
+  return stops
+    .map((stop) => ({
+      location: String(stop?.location || "").trim(),
+      placeId: String(stop?.placeId || "").trim(),
+    }))
+    .filter((stop) => stop.placeId)
+    .slice(0, MAX_STOPS);
 }
 
 function assertPaymentMatchesBooking(paymentIntent, request) {
@@ -28,11 +46,14 @@ function assertPaymentMatchesBooking(paymentIntent, request) {
   const expectedReturn = request.isReturnTrip ? "true" : "false";
   const requestCoupon = String(request.couponCode || "").toUpperCase();
   const expectedMeetAndGreet = request.meetAndGreet ? "true" : "false";
+  // Version 5 added stopsPlaceIds. Earlier intents never carried stops, so a
+  // missing value is treated as "no stops" to keep in-flight payments valid.
   const matches =
-    ["3", "4"].includes(metadata.pricingVersion) &&
+    ["3", "4", "5"].includes(metadata.pricingVersion) &&
     metadata.carId === String(request.carId) &&
     metadata.fromPlaceId === String(request.fromPlaceId || "") &&
     metadata.toPlaceId === String(request.toPlaceId || "") &&
+    String(metadata.stopsPlaceIds || "") === request.stopsPlaceIds &&
     metadata.returnFromPlaceId === String(request.returnFromPlaceId || "") &&
     metadata.returnToPlaceId === String(request.returnToPlaceId || "") &&
     metadata.isReturnTrip === expectedReturn &&
@@ -81,6 +102,7 @@ export async function createBooking(req, res) {
       pickupPlaceId,
       dropoffLocation,
       dropoffPlaceId,
+      stops,
       pickupDate,
       pickupTime,
       returnTrip,
@@ -107,11 +129,14 @@ export async function createBooking(req, res) {
       return res.json({ booking: existingBooking });
     }
 
+    const routeStops = normalizeStops(stops);
+
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
     const pricing = assertPaymentMatchesBooking(paymentIntent, {
       carId,
       fromPlaceId: pickupPlaceId,
       toPlaceId: dropoffPlaceId,
+      stopsPlaceIds: routeStops.map((stop) => stop.placeId).join(","),
       returnFromPlaceId: isReturnTrip ? returnTrip?.pickupPlaceId : "",
       returnToPlaceId: isReturnTrip ? returnTrip?.dropoffPlaceId : "",
       isReturnTrip: Boolean(isReturnTrip),
@@ -127,6 +152,7 @@ export async function createBooking(req, res) {
       pickupPlaceId,
       dropoffLocation,
       dropoffPlaceId,
+      stops: routeStops,
       pickupDate: pickupDate || "",
       pickupTime: pickupTime || "",
       isReturnTrip: Boolean(isReturnTrip),

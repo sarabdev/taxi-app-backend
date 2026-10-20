@@ -1,6 +1,9 @@
 import fs from "fs";
 import { Car } from "./car.model.js";
-import { calculateRoutePricingContext } from "../pricing/distance.service.js";
+import {
+  calculateRoutePricingContext,
+  normalizeStopPlaceIds,
+} from "../pricing/distance.service.js";
 import {
   calculatePublicFareOptions,
   getReusedReturnDistance,
@@ -70,26 +73,50 @@ export async function listPublicCars(_, res) {
 }
 
 export async function listPublicCarsWithPricing(req) {
-  const { fromPlaceId, toPlaceId, couponCode } = req.body;
+  const { fromPlaceId, toPlaceId, stops, couponCode } = req.body;
 
   if (!fromPlaceId || !toPlaceId) {
     throw new Error("fromPlaceId and toPlaceId are required");
   }
 
-  const [routeContext, cars, coupon, configuredAirportPickupFee] = await Promise.all([
-    calculateRoutePricingContext({ fromPlaceId, toPlaceId }),
-    Car.find(),
-    couponCode ? findValidCoupon(couponCode) : Promise.resolve(null),
-    getAirportPickupFee(),
-  ]);
-  const { distanceMiles, airportCode } = routeContext;
-  const returnDistanceMiles = getReusedReturnDistance({
-    outboundDistanceMiles: distanceMiles,
+  const stopPlaceIds = normalizeStopPlaceIds(stops);
+
+  const outboundPromise = calculateRoutePricingContext({
     fromPlaceId,
     toPlaceId,
-    returnFromPlaceId: toPlaceId,
-    returnToPlaceId: fromPlaceId,
+    stopPlaceIds,
   });
+  // The return leg is always a direct to → from journey. Without stops it is the
+  // outbound route reversed, so its distance is reused; with stops it is measured
+  // on its own, exactly as calculatePrice does at checkout.
+  const returnPromise =
+    stopPlaceIds.length === 0
+      ? outboundPromise
+      : calculateRoutePricingContext({
+          fromPlaceId: toPlaceId,
+          toPlaceId: fromPlaceId,
+        });
+
+  const [routeContext, returnContext, cars, coupon, configuredAirportPickupFee] =
+    await Promise.all([
+      outboundPromise,
+      returnPromise,
+      Car.find(),
+      couponCode ? findValidCoupon(couponCode) : Promise.resolve(null),
+      getAirportPickupFee(),
+    ]);
+  const { distanceMiles, airportCode } = routeContext;
+  const returnDistanceMiles =
+    stopPlaceIds.length === 0
+      ? getReusedReturnDistance({
+          outboundDistanceMiles: distanceMiles,
+          fromPlaceId,
+          toPlaceId,
+          returnFromPlaceId: toPlaceId,
+          returnToPlaceId: fromPlaceId,
+        })
+      : returnContext.distanceMiles;
+  const returnAirportCode = returnContext.airportCode;
   const outboundAirportPickupFee = routeContext.pickupAirportCode
     ? configuredAirportPickupFee
     : 0;
@@ -101,7 +128,7 @@ export async function listPublicCarsWithPricing(req) {
     const pricePerMile = resolvePricePerMile(car, airportCode, distanceMiles);
     const returnPricePerMile = resolvePricePerMile(
       car,
-      airportCode,
+      returnAirportCode,
       returnDistanceMiles
     );
     const fareOptions = calculatePublicFareOptions({
@@ -112,7 +139,7 @@ export async function listPublicCarsWithPricing(req) {
       outboundAirportPickupFee,
       returnDistanceMiles,
       returnPricePerMile,
-      returnAirportCode: airportCode,
+      returnAirportCode,
       returnAirportPickupFee,
       coupon,
     });

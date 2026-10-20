@@ -1,6 +1,9 @@
 import { Car } from "../cars/car.model.js";
 import { findValidCoupon } from "../coupons/coupon.service.js";
-import { calculateRoutePricingContext } from "./distance.service.js";
+import {
+  calculateRoutePricingContext,
+  normalizeStopPlaceIds,
+} from "./distance.service.js";
 import {
   getAirportPickupFee,
   getMeetAndGreetPrice,
@@ -352,6 +355,7 @@ export async function calculatePrice({
   carId,
   fromPlaceId,
   toPlaceId,
+  stops = [],
   returnFromPlaceId,
   returnToPlaceId,
   isReturnTrip = false,
@@ -362,19 +366,27 @@ export async function calculatePrice({
     throw new Error("carId, fromPlaceId and toPlaceId are required");
   }
 
+  const stopPlaceIds = normalizeStopPlaceIds(stops);
+
   const outboundPromise = calculateRoutePricingContext({
     fromPlaceId,
     toPlaceId,
+    stopPlaceIds,
   });
 
   const inboundFrom = returnFromPlaceId || toPlaceId;
   const inboundTo = returnToPlaceId || fromPlaceId;
-  const shouldReuseOutboundDistance = isExactReverseRoute({
-    fromPlaceId,
-    toPlaceId,
-    returnFromPlaceId: inboundFrom,
-    returnToPlaceId: inboundTo,
-  });
+  // The outbound distance now includes any intermediate stops, so it can only be
+  // reused for the return leg when the route is a plain reversed trip with no
+  // detours. Otherwise the return leg is measured on its own.
+  const shouldReuseOutboundDistance =
+    stopPlaceIds.length === 0 &&
+    isExactReverseRoute({
+      fromPlaceId,
+      toPlaceId,
+      returnFromPlaceId: inboundFrom,
+      returnToPlaceId: inboundTo,
+    });
   const inboundPromise = isReturnTrip
     ? shouldReuseOutboundDistance
       ? outboundPromise

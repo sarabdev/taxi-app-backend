@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  MAX_STOPS,
+  normalizeStopPlaceIds,
   selectNearestAirportCode,
   supportedAirportCodeFromPlace,
 } from "../src/modules/pricing/distance.service.js";
@@ -49,4 +51,25 @@ test("does not charge nearby addresses or unsupported airports", () => {
     supportedAirportCodeFromPlace({ name: "Aberdeen Airport", types: ["airport"] }),
     null
   );
+});
+
+test("normalizes stops into ordered, trimmed place ids", () => {
+  assert.deepEqual(
+    normalizeStopPlaceIds([
+      { placeId: " a ", location: "A" },
+      "b",
+      { location: "No place id" },
+      "",
+      null,
+      { placeId: "c" },
+    ]),
+    ["a", "b", "c"]
+  );
+});
+
+test("caps stops at MAX_STOPS and ignores non-array input", () => {
+  const many = Array.from({ length: MAX_STOPS + 3 }, (_, i) => `p${i}`);
+  assert.equal(normalizeStopPlaceIds(many).length, MAX_STOPS);
+  assert.deepEqual(normalizeStopPlaceIds(undefined), []);
+  assert.deepEqual(normalizeStopPlaceIds("p1,p2"), []);
 });

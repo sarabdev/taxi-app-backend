@@ -68,9 +68,23 @@ export function emailLayout({ title, preheader = "", content }) {
 </html>`;
 }
 
+/** Ordered intermediate stops of the outbound journey, ignoring blank entries. */
+export function routeStops(booking) {
+  return (Array.isArray(booking?.stops) ? booking.stops : []).filter((stop) =>
+    String(stop?.location || "").trim()
+  );
+}
+
 export function journeySummary(booking) {
+  const stops = routeStops(booking)
+    .map(
+      (stop, index) =>
+        `<p style="margin:0 0 8px;"><b style="color:#0f172a;">Stop ${index + 1}:</b> ${escapeHtml(stop.location)}</p>`
+    )
+    .join("");
   const outward = `
     <p style="margin:0 0 8px;"><b style="color:#0f172a;">Pickup:</b> ${escapeHtml(booking.pickupLocation)}</p>
+    ${stops}
     <p style="margin:0 0 8px;"><b style="color:#0f172a;">Drop-off:</b> ${escapeHtml(booking.dropoffLocation)}</p>
     <p style="margin:0;"><b style="color:#0f172a;">Booked for:</b> ${escapeHtml(booking.pickupDate)} ${escapeHtml(booking.pickupTime)}</p>
   `;
@@ -142,6 +156,9 @@ export function fullBookingDetails(booking) {
   return [
     detailSection("Journey details", [
       detailRow("Pickup", escapeHtml(booking.pickupLocation || "—")),
+      ...routeStops(booking).map((stop, index) =>
+        detailRow(`Stop ${index + 1}`, escapeHtml(stop.location))
+      ),
       detailRow("Destination", escapeHtml(booking.dropoffLocation || "—")),
       detailRow("Pickup date", displayDateTime(booking.pickupDate)),
       detailRow("Pickup time", displayDateTime(null, booking.pickupTime)),
