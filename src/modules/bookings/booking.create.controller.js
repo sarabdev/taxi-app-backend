@@ -5,6 +5,7 @@ import { bookingConfirmedEmail } from "../../emails/bookingConfirmed.js";
 import { adminBookingConfirmedEmail } from "../../emails/adminBookingConfirmed.js";
 import { pricingSnapshotMatchesTotal } from "../pricing/pricing.service.js";
 import { MAX_STOPS } from "../pricing/distance.service.js";
+import { resolveBookingPartner } from "../partners/partner.service.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const BOOKING_ADMIN_EMAIL = "myairporttaxi86@gmail.com";
@@ -113,6 +114,7 @@ export async function createBooking(req, res) {
       passengers,
       luggage,
       flight,
+      partnerCode,
     } = req.body;
 
     if (!carId || !pickupPlaceId || !dropoffPlaceId || !paymentIntentId) {
@@ -143,6 +145,10 @@ export async function createBooking(req, res) {
       couponCode,
       meetAndGreet: Boolean(flight?.meetAndGreet),
     });
+
+    const partner = partnerCode
+      ? await resolveBookingPartner(partnerCode, pricing.totalFare)
+      : null;
 
     let booking = await Booking.create({
       customerName,
@@ -183,6 +189,7 @@ export async function createBooking(req, res) {
         meetAndGreet: Boolean(flight?.meetAndGreet),
       },
       pricing,
+      partner,
     });
 
     booking = await Booking.findById(booking._id).populate("carId");

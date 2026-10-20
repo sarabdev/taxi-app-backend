@@ -18,6 +18,13 @@ const SettingsSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
+    // Commission offered to newly approved partners; each partner can override it.
+    defaultPartnerCommissionPercent: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 10,
+    },
   },
   { timestamps: true }
 );

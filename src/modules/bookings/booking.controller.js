@@ -28,6 +28,13 @@ function populatedBooking(id) {
     });
 }
 
+/** Partner commission is internal, so it is removed from responses to drivers. */
+function bookingForRole(booking, role) {
+  if (role !== "DRIVER" || !booking) return booking;
+  const { partner: _partner, ...rest } = booking.toObject ? booking.toObject() : booking;
+  return rest;
+}
+
 /** Admin: list all bookings. */
 export async function listBookings(req, res) {
   const bookings = await Booking.find()
@@ -122,7 +129,7 @@ export async function updateStatus(req, res) {
   }
 
   if (current.status === "COMPLETED") {
-    if (status === "COMPLETED") return res.json(current);
+    if (status === "COMPLETED") return res.json(bookingForRole(current, req.user.role));
     return res.status(409).json({
       message: "Completed bookings are locked and cannot change status",
     });
@@ -159,7 +166,7 @@ export async function updateStatus(req, res) {
   if (!booking) {
     booking = await populatedBooking(current._id);
     if (booking?.status === "COMPLETED" && status === "COMPLETED") {
-      return res.json(booking);
+      return res.json(bookingForRole(booking, req.user.role));
     }
     return res.status(409).json({
       message: "Booking changed while updating. Refresh and try again.",
@@ -224,5 +231,5 @@ export async function updateStatus(req, res) {
     await Promise.all(emails);
   }
 
-  res.json(booking);
+  res.json(bookingForRole(booking, req.user.role));
 }

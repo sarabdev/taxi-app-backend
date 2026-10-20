@@ -8,7 +8,10 @@ export const settingsRouter = Router();
 settingsRouter.get("/public", async (_, res) => {
   try {
     const settings = await getSettings();
-    res.json({ meetAndGreetPrice: settings.meetAndGreetPrice });
+    res.json({
+      meetAndGreetPrice: settings.meetAndGreetPrice,
+      defaultPartnerCommissionPercent: settings.defaultPartnerCommissionPercent,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -39,9 +42,30 @@ settingsRouter.patch("/", auth, requireRole("ADMIN"), async (req, res) => {
       });
     }
 
+    let defaultPartnerCommissionPercent;
+    if (req.body.defaultPartnerCommissionPercent !== undefined) {
+      defaultPartnerCommissionPercent = Number(
+        req.body.defaultPartnerCommissionPercent
+      );
+      if (
+        !Number.isFinite(defaultPartnerCommissionPercent) ||
+        defaultPartnerCommissionPercent < 0 ||
+        defaultPartnerCommissionPercent > 100
+      ) {
+        return res.status(400).json({
+          message: "Default partner commission must be between 0 and 100%",
+        });
+      }
+    }
+
     const settings = await getSettings();
     settings.meetAndGreetPrice = Number(meetAndGreetPrice.toFixed(2));
     settings.airportPickupFee = Number(airportPickupFee.toFixed(2));
+    if (defaultPartnerCommissionPercent !== undefined) {
+      settings.defaultPartnerCommissionPercent = Number(
+        defaultPartnerCommissionPercent.toFixed(2)
+      );
+    }
     await settings.save();
     res.json(settings);
   } catch (error) {

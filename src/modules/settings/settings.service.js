@@ -8,6 +8,7 @@ export async function getSettings() {
         key: "global",
         meetAndGreetPrice: 0,
         airportPickupFee: 0,
+        defaultPartnerCommissionPercent: 10,
       },
     },
     { new: true, upsert: true, setDefaultsOnInsert: true }

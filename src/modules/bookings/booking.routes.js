@@ -31,9 +31,11 @@ bookingRouter.get(
     }
 
     // 2️⃣ Fetch bookings assigned to this driver
+    // Partner commission is internal and not shown to drivers.
     const bookings = await Booking.find({
       assignedDriverId: driver._id,
     })
+      .select("-partner")
       .populate("carId")
       .sort({ createdAt: -1 });
 

@@ -74,6 +74,25 @@ const StopSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/* ───────────────────── Referring partner ───────────────────── */
+// Snapshot taken at booking time so later commission changes never rewrite
+// what was earned on past rides.
+const BookingPartnerSchema = new mongoose.Schema(
+  {
+    partnerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Partner",
+      required: true,
+      index: true,
+    },
+    referralCode: { type: String, default: "" },
+    companyName: { type: String, default: "" },
+    commissionPercent: { type: Number, min: 0, max: 100, default: 0 },
+    commissionAmount: { type: Number, min: 0, default: 0 },
+  },
+  { _id: false }
+);
+
 /* ───────────────────── Luggage ───────────────────── */
 const LuggageSchema = new mongoose.Schema(
   {
@@ -282,6 +301,12 @@ const BookingSchema = new mongoose.Schema(
     pricing: {
       type: PricingSchema,
       required: true,
+    },
+
+    /* Partner whose referral link brought this booking, if any */
+    partner: {
+      type: BookingPartnerSchema,
+      default: null,
     },
   },
   { timestamps: true }
