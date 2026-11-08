@@ -6,9 +6,10 @@ import { adminBookingConfirmedEmail } from "../../emails/adminBookingConfirmed.j
 import { pricingSnapshotMatchesTotal } from "../pricing/pricing.service.js";
 import { MAX_STOPS } from "../pricing/distance.service.js";
 import { resolveBookingPartner } from "../partners/partner.service.js";
+import { generateCompletionCode } from "./completionCode.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-const BOOKING_ADMIN_EMAIL = "myairporttaxi86@gmail.com";
+const BOOKING_ADMIN_EMAIL = ["myairporttaxi86@gmail.com", "booking@zalt.uk"];
 
 function metadataNumber(metadata, key) {
   const value = Number(metadata[key] || 0);
@@ -190,9 +191,13 @@ export async function createBooking(req, res) {
       },
       pricing,
       partner,
+      completionCode: generateCompletionCode(),
     });
 
-    booking = await Booking.findById(booking._id).populate("carId");
+    // The customer's own response and confirmation email carry the job-end code.
+    booking = await Booking.findById(booking._id)
+      .select("+completionCode")
+      .populate("carId");
 
     const customerConfirmation = bookingConfirmedEmail({ booking });
     const deliveries = [

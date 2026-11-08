@@ -3,7 +3,10 @@ import { emailLayout, escapeHtml } from "./email.helpers.js";
 export function partnerApprovedEmail({ partner, link }) {
   const title = "Your partner link is ready.";
   const safeLink = escapeHtml(link);
-  const commission = Number(partner.commissionPercent || 0);
+  const commission =
+    partner.commissionType === "FIXED"
+      ? `£${Number(partner.commissionFixedAmount || 0).toFixed(2)}`
+      : `${Number(partner.commissionPercent || 0)}% of the fare`;
 
   return {
     subject: "Welcome to the Zalt partner programme",
@@ -11,9 +14,9 @@ export function partnerApprovedEmail({ partner, link }) {
       title,
       preheader: `${partner.companyName} is now a Zalt partner.`,
       content: `
-      <p style="margin:0 0 14px;">Hello ${escapeHtml(partner.contactName)},</p>
+      <p style="margin:0 0 14px;">Hello ${escapeHtml(partner.contactName || partner.companyName)},</p>
       <p style="margin:0 0 14px;">Great news: <b style="color:#0f172a;">${escapeHtml(partner.companyName)}</b> has been approved as a Zalt partner.</p>
-      <p style="margin:0 0 14px;">Share the link below with your guests, for example in booking confirmations, digital guestbooks, or at reception. Every completed journey booked through it earns you <b style="color:#0f172a;">${escapeHtml(commission)}%</b> of the fare.</p>
+      <p style="margin:0 0 14px;">Share the link below with your guests, for example in booking confirmations, digital guestbooks, or at reception. Every completed journey booked through it earns you <b style="color:#0f172a;">${escapeHtml(commission)}</b>.</p>
       <div style="margin:22px 0;padding:18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;">
         <p style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#64748b;">Your partner link</p>
         <p style="margin:0 0 14px;word-break:break-all;"><a href="${safeLink}" style="color:#0f172a;font-weight:700;">${safeLink}</a></p>

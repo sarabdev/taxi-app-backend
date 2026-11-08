@@ -10,6 +10,10 @@ import {
   driverShareForFare,
   platformShareForFare,
 } from "../accounting/accounting.service.js";
+import {
+  MAX_COMPLETION_CODE_ATTEMPTS,
+  completionCodeMatches,
+} from "./completionCode.js";
 
 const BOOKING_STATUSES = new Set([
   "PENDING",
@@ -17,7 +21,7 @@ const BOOKING_STATUSES = new Set([
   "COMPLETED",
   "CANCELLED",
 ]);
-const BOOKING_ADMIN_EMAIL = "myairporttaxi86@gmail.com";
+const BOOKING_ADMIN_EMAIL = ["myairporttaxi86@gmail.com", "booking@zalt.uk"];
 
 function populatedBooking(id) {
   return Booking.findById(id)
@@ -107,7 +111,7 @@ export async function assignDriver(req, res) {
  * COMPLETED is terminal because it recognizes revenue and driver earnings.
  */
 export async function updateStatus(req, res) {
-  const { status, note } = req.body;
+  const { status, note, completionCode } = req.body;
   if (!BOOKING_STATUSES.has(status)) {
     return res.status(400).json({ message: "Invalid booking status" });
   }
@@ -139,6 +143,46 @@ export async function updateStatus(req, res) {
     return res
       .status(400)
       .json({ message: "Cannot complete booking without a driver" });
+  }
+
+  // Drivers must enter the customer's job-end code. Admins can override.
+  // Bookings created before codes existed have none and skip this check.
+  if (req.user.role === "DRIVER" && status === "COMPLETED") {
+    const secret = await Booking.findById(current._id)
+      .select("+completionCode")
+      .lean();
+
+    if (secret?.completionCode) {
+      // Reserve one attempt atomically before checking, so parallel guesses
+      // can never get past the limit.
+      const attempt = await Booking.findOneAndUpdate(
+        {
+          _id: current._id,
+          completionCodeAttempts: { $lt: MAX_COMPLETION_CODE_ATTEMPTS },
+        },
+        { $inc: { completionCodeAttempts: 1 } },
+        { new: true, projection: { completionCodeAttempts: 1 } }
+      ).lean();
+
+      if (!attempt) {
+        return res.status(423).json({
+          message:
+            "Too many wrong codes. Please contact the office to complete this ride.",
+        });
+      }
+
+      if (!completionCodeMatches(secret.completionCode, completionCode)) {
+        const left = Math.max(
+          0,
+          MAX_COMPLETION_CODE_ATTEMPTS - (attempt.completionCodeAttempts || 0)
+        );
+        return res.status(400).json({
+          message: left
+            ? `Wrong job-end code. ${left} attempt${left === 1 ? "" : "s"} left.`
+            : "Too many wrong codes. Please contact the office to complete this ride.",
+        });
+      }
+    }
   }
 
   if (status === "ASSIGNED" && !current.assignedDriverId) {

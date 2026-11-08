@@ -9,6 +9,7 @@ import {
   partnerApplicationSchema,
 } from "./partner.validators.js";
 import {
+  applyCommissionChoice,
   approvePartner,
   findActivePartnerByCode,
   getDefaultCommissionPercent,
@@ -23,7 +24,7 @@ import {
   partnerApplicationReceivedEmail,
 } from "../../emails/partnerApplication.js";
 
-const PARTNER_ADMIN_EMAIL = "myairporttaxi86@gmail.com";
+const PARTNER_ADMIN_EMAIL = ["myairporttaxi86@gmail.com", "support@zalt.uk"];
 
 function sendError(res, error) {
   if (error?.code === 11000) {
@@ -142,16 +143,21 @@ export async function listPartners(req, res) {
 
 export async function createPartner(req, res) {
   try {
-    const { sendEmail, commissionPercent, ...details } = parseOrThrow(
-      adminCreatePartnerSchema,
-      req.body
-    );
+    const {
+      sendEmail,
+      commissionType,
+      commissionPercent,
+      commissionFixedAmount,
+      ...details
+    } = parseOrThrow(adminCreatePartnerSchema, req.body);
     await assertNoOpenPartnerWithEmail(details.email);
 
     // Admin-created partners are approved straight away.
     const partner = new Partner({ ...details, source: "ADMIN" });
     const { emailSent } = await approvePartner(partner, {
+      commissionType,
       commissionPercent,
+      commissionFixedAmount,
       adminId: req.user.id,
       notify: sendEmail,
     });
@@ -170,7 +176,14 @@ export async function updatePartner(req, res) {
       await assertNoOpenPartnerWithEmail(changes.email, partner._id);
     }
 
-    partner.set(changes);
+    const { commissionType, commissionPercent, commissionFixedAmount, ...details } =
+      changes;
+    partner.set(details);
+    await applyCommissionChoice(partner, {
+      commissionType,
+      commissionPercent,
+      commissionFixedAmount,
+    });
     await partner.save();
     res.json({ partner: await adminPartnerResponse(partner) });
   } catch (error) {
@@ -184,11 +197,11 @@ export async function approve(req, res) {
     if (partner.status === "APPROVED") {
       throw httpError(409, "Partner is already approved");
     }
-    const { commissionPercent } = parseOrThrow(approvePartnerSchema, req.body);
+    const commission = parseOrThrow(approvePartnerSchema, req.body);
     // A rejected or suspended partner may have re-applied under the same email.
     await assertNoOpenPartnerWithEmail(partner.email, partner._id);
     const { emailSent } = await approvePartner(partner, {
-      commissionPercent,
+      ...commission,
       adminId: req.user.id,
     });
     res.json({ partner: await adminPartnerResponse(partner), emailSent });

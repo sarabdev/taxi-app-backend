@@ -35,11 +35,17 @@ bookingRouter.get(
     const bookings = await Booking.find({
       assignedDriverId: driver._id,
     })
-      .select("-partner")
+      .select("-partner +completionCode")
       .populate("carId")
       .sort({ createdAt: -1 });
 
-    res.json(bookings);
+    // Drivers only learn whether a job-end code is needed, never the code.
+    res.json(
+      bookings.map((booking) => {
+        const { completionCode, ...rest } = booking.toObject();
+        return { ...rest, requiresCompletionCode: Boolean(completionCode) };
+      })
+    );
   }
 );
 
@@ -51,6 +57,7 @@ bookingRouter.get(
   async (req, res) => {
     try {
       const booking = await Booking.findById(req.params.id)
+        .select("+completionCode")
         .populate("carId")
         .populate({
           path: "assignedDriverId",

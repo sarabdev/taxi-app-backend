@@ -20,10 +20,8 @@ import {
 
 const validApplication = {
   companyName: "The Grand Hotel",
-  contactName: "Alex Smith",
   email: "Alex@Example.com ",
-  propertyType: "HOTEL",
-  propertyCount: "21-50",
+  phone: "+44 7700 900123",
 };
 
 test("referral codes use a readable company prefix and random suffix", () => {
@@ -63,7 +61,11 @@ test("accepts a valid partner application and normalises the email", () => {
 test("rejects incomplete, invalid, and bot partner applications", () => {
   assert.throws(
     () => parseOrThrow(partnerApplicationSchema, { ...validApplication, companyName: " " }),
-    /Property \/ company is required/
+    /Business name is required/
+  );
+  assert.throws(
+    () => parseOrThrow(partnerApplicationSchema, { ...validApplication, phone: "" }),
+    /Phone is required/
   );
   assert.throws(
     () => parseOrThrow(partnerApplicationSchema, { ...validApplication, email: "nope" }),
@@ -119,13 +121,12 @@ test("application emails reach the applicant and admin with escaped details", ()
   const partner = {
     ...validApplication,
     companyName: "Grand <Hotel>",
-    propertyType: "GUEST_HOUSE",
     message: "Hi <b>there</b>",
   };
   assert.match(partnerApplicationReceivedEmail({ partner }).html, /Grand &lt;Hotel&gt;/);
 
   const admin = adminPartnerApplicationEmail({ partner });
   assert.match(admin.subject, /Grand <Hotel>/);
-  assert.match(admin.html, /Guest house \/ B&amp;B/);
+  assert.match(admin.html, /\+44 7700 900123/);
   assert.match(admin.html, /Hi &lt;b&gt;there&lt;\/b&gt;/);
 });

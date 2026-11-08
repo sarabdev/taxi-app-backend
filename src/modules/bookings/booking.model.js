@@ -87,7 +87,9 @@ const BookingPartnerSchema = new mongoose.Schema(
     },
     referralCode: { type: String, default: "" },
     companyName: { type: String, default: "" },
+    commissionType: { type: String, enum: ["PERCENT", "FIXED"], default: "PERCENT" },
     commissionPercent: { type: Number, min: 0, max: 100, default: 0 },
+    commissionFixedAmount: { type: Number, min: 0, default: 0 },
     commissionAmount: { type: Number, min: 0, default: 0 },
   },
   { _id: false }
@@ -290,6 +292,20 @@ const BookingSchema = new mongoose.Schema(
     completionNote: {
       type: String,
       default: "",
+    },
+
+    /* Job-end code: shown to the customer only; the driver must enter it to
+       complete the ride. Hidden from queries unless explicitly selected. */
+    completionCode: {
+      type: String,
+      default: "",
+      select: false,
+    },
+
+    completionCodeAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
     },
 
     completedAt: {

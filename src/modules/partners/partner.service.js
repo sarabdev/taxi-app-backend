@@ -52,6 +52,47 @@ export function partnerCommissionAmount(totalFare, commissionPercent) {
   return roundMoney((fare * percent) / 100);
 }
 
+/** Commission for one booking, using the partner's chosen type. */
+export function commissionForFare(totalFare, commission = {}) {
+  if (commission.commissionType === "FIXED") {
+    const fare = Math.max(0, Number(totalFare) || 0);
+    const fixed = Math.max(0, Number(commission.commissionFixedAmount) || 0);
+    return roundMoney(Math.min(fixed, fare));
+  }
+  return partnerCommissionAmount(totalFare, commission.commissionPercent);
+}
+
+/**
+ * Applies an admin's commission choice to a partner. Switching to PERCENT
+ * without a value keeps the partner's previous % (or the default).
+ */
+export async function applyCommissionChoice(
+  partner,
+  { commissionType, commissionPercent, commissionFixedAmount } = {}
+) {
+  if (commissionFixedAmount !== undefined) {
+    partner.commissionFixedAmount = commissionFixedAmount;
+  }
+  if (commissionPercent !== undefined) {
+    partner.commissionPercent = commissionPercent;
+  }
+  if (commissionType) {
+    partner.commissionType = commissionType;
+  } else if (commissionPercent !== undefined) {
+    partner.commissionType = "PERCENT";
+  } else if (commissionFixedAmount !== undefined) {
+    partner.commissionType = "FIXED";
+  }
+  if (partner.commissionType !== "FIXED" && partner.commissionPercent == null) {
+    partner.commissionPercent = await getDefaultCommissionPercent();
+  }
+  if (partner.commissionType === "FIXED" && partner.commissionFixedAmount == null) {
+    throw Object.assign(new Error("Enter the fixed £ commission per journey"), {
+      status: 400,
+    });
+  }
+}
+
 export async function getDefaultCommissionPercent() {
   const settings = await getSettings();
   const value = Number(settings.defaultPartnerCommissionPercent);
@@ -73,16 +114,16 @@ async function assignUniqueReferralCode(partner) {
  */
 export async function approvePartner(
   partner,
-  { commissionPercent, adminId, notify = true } = {}
+  { commissionType, commissionPercent, commissionFixedAmount, adminId, notify = true } = {}
 ) {
   if (!partner.referralCode) {
     partner.referralCode = await assignUniqueReferralCode(partner);
   }
-  if (commissionPercent !== undefined) {
-    partner.commissionPercent = commissionPercent;
-  } else if (partner.commissionPercent == null) {
-    partner.commissionPercent = await getDefaultCommissionPercent();
-  }
+  await applyCommissionChoice(partner, {
+    commissionType,
+    commissionPercent,
+    commissionFixedAmount,
+  });
 
   partner.status = "APPROVED";
   partner.approvedAt = new Date();
@@ -131,13 +172,17 @@ export async function resolveBookingPartner(partnerCode, totalFare) {
     const partner = await findActivePartnerByCode(partnerCode);
     if (!partner) return null;
 
-    const commissionPercent = Number(partner.commissionPercent ?? 0);
+    const commission = {
+      commissionType: partner.commissionType === "FIXED" ? "FIXED" : "PERCENT",
+      commissionPercent: Number(partner.commissionPercent ?? 0),
+      commissionFixedAmount: Number(partner.commissionFixedAmount ?? 0),
+    };
     return {
       partnerId: partner._id,
       referralCode: partner.referralCode,
       companyName: partner.companyName,
-      commissionPercent,
-      commissionAmount: partnerCommissionAmount(totalFare, commissionPercent),
+      ...commission,
+      commissionAmount: commissionForFare(totalFare, commission),
     };
   } catch (error) {
     // Attribution must never block a paid booking.

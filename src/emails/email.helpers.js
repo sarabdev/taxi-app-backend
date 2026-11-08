@@ -57,7 +57,7 @@ export function emailLayout({ title, preheader = "", content }) {
               <td style="border-top:1px solid #e2e8f0;background:#f8fafc;padding:20px 28px;font-family:Arial,sans-serif;font-size:12px;line-height:19px;color:#64748b;">
                 <strong style="color:#0f172a;">Zalt</strong><br />
                 Need help? Email
-                <a href="mailto:support@myairporttaxis.uk" style="color:#0f172a;font-weight:700;text-decoration:underline;">support@myairporttaxis.uk</a>
+                <a href="mailto:support@zalt.uk" style="color:#0f172a;font-weight:700;text-decoration:underline;">support@zalt.uk</a>
               </td>
             </tr>
           </table>

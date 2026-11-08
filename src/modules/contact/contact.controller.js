@@ -5,7 +5,7 @@ import {
 } from "../../emails/email.helpers.js";
 
 const CONTACT_RECIPIENT =
-  process.env.CONTACT_TO_EMAIL || "support@myairporttaxis.uk";
+  process.env.CONTACT_TO_EMAIL || "support@zalt.uk";
 
 const subjectLabels = {
   booking: "Booking Inquiry",

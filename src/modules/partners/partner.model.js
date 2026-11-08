@@ -17,7 +17,7 @@ const PartnerSchema = new mongoose.Schema(
   {
     /* Applicant / business details */
     companyName: { type: String, required: true, trim: true, maxlength: 160 },
-    contactName: { type: String, required: true, trim: true, maxlength: 120 },
+    contactName: { type: String, trim: true, maxlength: 120, default: "" },
     position: { type: String, trim: true, maxlength: 120, default: "" },
     email: {
       type: String,
@@ -44,7 +44,11 @@ const PartnerSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+    // PERCENT: commissionPercent % of each completed fare.
+    // FIXED: commissionFixedAmount (GBP) per completed journey.
+    commissionType: { type: String, enum: ["PERCENT", "FIXED"], default: "PERCENT" },
     commissionPercent: { type: Number, min: 0, max: 100, default: null },
+    commissionFixedAmount: { type: Number, min: 0, default: null },
     adminNotes: { type: String, trim: true, maxlength: 2000, default: "" },
 
     approvedAt: { type: Date, default: null },
