@@ -6,13 +6,19 @@ import {
   listBookings,
   assignDriver,
   updateStatus,
+  driverLinkAuth,
+  getDriverLinkBooking,
+  completeViaDriverLink,
 } from "./booking.controller.js";
+import { driverBooking } from "./driverBooking.js";
 import { Booking } from "./booking.model.js";
 import { Driver } from "../drivers/driver.model.js";
 export const bookingRouter = Router();
 
 // Public (customer website)
 bookingRouter.post("/", createBooking);
+bookingRouter.get("/driver-access", driverLinkAuth, getDriverLinkBooking);
+bookingRouter.post("/driver-access/complete", driverLinkAuth, completeViaDriverLink);
 
 // Admin
 bookingRouter.get("/", auth, requireRole("ADMIN"), listBookings);
@@ -42,8 +48,7 @@ bookingRouter.get(
     // Drivers only learn whether a job-end code is needed, never the code.
     res.json(
       bookings.map((booking) => {
-        const { completionCode, ...rest } = booking.toObject();
-        return { ...rest, requiresCompletionCode: Boolean(completionCode) };
+        return driverBooking(booking);
       })
     );
   }

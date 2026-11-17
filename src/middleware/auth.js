@@ -9,6 +9,8 @@ export async function auth(req, res, next) {
     if (!token) return res.status(401).json({ message: "Unauthorized" });
 
     const payload = jwt.verify(token, env.JWT_SECRET);
+    // Email access links cannot be exchanged for a normal admin/driver session.
+    if (payload.purpose) return res.status(401).json({ message: "Unauthorized" });
     const user = await User.findById(payload.sub).lean();
     if (!user || !user.isActive) return res.status(401).json({ message: "Unauthorized" });
 

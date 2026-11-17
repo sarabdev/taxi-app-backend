@@ -12,6 +12,15 @@ import { Driver } from "./driver.model.js";
 
 export const driverRouter = Router();
 
+function parseDriverDocument(req, res, next) {
+  uploadDriverDocuments.single("licenseDocument")(req, res, (error) => {
+    if (error) return res.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({
+      message: error.code === "LIMIT_FILE_SIZE" ? "License document must be 5 MB or smaller" : error.message,
+    });
+    next();
+  });
+}
+
 /**
  * Create driver
  */
@@ -19,7 +28,7 @@ driverRouter.post(
   "/",
   auth,
   requireRole("ADMIN"),
-  uploadDriverDocuments.single("licenseDocument"),
+  parseDriverDocument,
   createDriver
 );
 
@@ -47,6 +56,7 @@ driverRouter.put(
   "/:id",
   auth,
   requireRole("ADMIN"),
+  parseDriverDocument,
   updateDriver
 );
 

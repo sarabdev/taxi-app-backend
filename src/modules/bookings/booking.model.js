@@ -294,6 +294,16 @@ const BookingSchema = new mongoose.Schema(
       default: "",
     },
 
+    // Only this optional admin-entered amount may be shown to the driver.
+    driverAmount: { type: Number, min: 0, default: null },
+    driverAccessNonce: { type: String, default: "", select: false },
+    // Persist delivery intent with the lifecycle write so an interrupted queue
+    // insert can be recovered after a restart without emailing historical rides.
+    notificationPending: {
+      type: new mongoose.Schema({ confirmed: Boolean, completed: Boolean, assignment: String }, { _id: false }),
+      default: () => ({}), select: false,
+    },
+
     /* Job-end code: shown to the customer only; the driver must enter it to
        complete the ride. Hidden from queries unless explicitly selected. */
     completionCode: {
@@ -327,5 +337,9 @@ const BookingSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+BookingSchema.index({ "notificationPending.confirmed": 1 }, { partialFilterExpression: { "notificationPending.confirmed": true } });
+BookingSchema.index({ "notificationPending.completed": 1 }, { partialFilterExpression: { "notificationPending.completed": true } });
+BookingSchema.index({ "notificationPending.assignment": 1 }, { partialFilterExpression: { "notificationPending.assignment": { $gt: "" } } });
 
 export const Booking = mongoose.model("Booking", BookingSchema);

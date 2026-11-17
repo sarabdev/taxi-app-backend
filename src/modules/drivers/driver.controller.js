@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import fs from "fs";
+import path from "node:path";
 import { User } from "../users/user.model.js";
 import { Driver } from "./driver.model.js";
 
@@ -111,6 +112,7 @@ export async function createDriver(req, res) {
  * Update driver profile
  */
 export async function updateDriver(req, res) {
+  let saved = false;
   try {
     const { id } = req.params;
 
@@ -121,7 +123,11 @@ export async function updateDriver(req, res) {
       city,
       homeAddress,
       assignedCarId,
-    } = req.body;
+    } = req.body || {};
+
+    if ([name, city, homeAddress].some((value) => value !== undefined && (typeof value !== "string" || !value.trim()))) {
+      return res.status(400).json({ message: "Name, city and home address cannot be blank" });
+    }
 
     const driver = await Driver.findById(id);
 
@@ -145,18 +151,9 @@ export async function updateDriver(req, res) {
       }
     }
 
-    /* Replace license document */
-    if (req.file) {
-      if (driver.licenseDocument) {
-        const oldPath = driver.licenseDocument.replace("/", "");
-
-        if (fs.existsSync(oldPath)) {
-          fs.unlinkSync(oldPath);
-        }
-      }
-
-      driver.licenseDocument = `/uploads/drivers/${req.file.filename}`;
-    }
+    // Keep the existing file until the replacement is saved successfully.
+    const oldDocument = driver.licenseDocument;
+    if (req.file) driver.licenseDocument = `/uploads/drivers/${req.file.filename}`;
 
     /* Partial updates */
     if (name !== undefined) {
@@ -184,6 +181,11 @@ export async function updateDriver(req, res) {
     }
 
     await driver.save();
+    saved = true;
+
+    if (req.file && oldDocument?.startsWith("/uploads/drivers/") && oldDocument !== driver.licenseDocument) {
+      await removeDriverDocument(path.basename(oldDocument));
+    }
 
     res.json({
       message: "Driver updated",
@@ -195,7 +197,17 @@ export async function updateDriver(req, res) {
     res.status(500).json({
       message: e.message || "Internal Server Error",
     });
+  } finally {
+    if (req.file && !saved) await removeDriverDocument(req.file.filename);
   }
+}
+
+async function removeDriverDocument(filename) {
+  const directory = path.resolve("uploads/drivers");
+  const target = path.resolve(directory, path.basename(filename));
+  if (path.dirname(target) !== directory) return;
+  try { await fs.promises.unlink(target); }
+  catch (error) { if (error.code !== "ENOENT") console.error("Driver document cleanup failed:", error.message); }
 }
 
 /**

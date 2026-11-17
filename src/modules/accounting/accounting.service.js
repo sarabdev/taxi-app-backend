@@ -20,11 +20,15 @@ export function platformShareForFare(totalFare) {
   );
 }
 
+export function driverEarningsForBooking(booking) {
+  return booking.driverAmount != null ? roundMoney(booking.driverAmount) : driverShareForFare(booking.pricing?.totalFare);
+}
+
 function withSession(query, session) {
   return session ? query.session(session) : query;
 }
 
-export async function getDriverAccounting(driverId, { session } = {}) {
+export async function getDriverAccounting(driverId, { session, visibleOnly = false } = {}) {
   const objectId = new mongoose.Types.ObjectId(driverId);
   let earnings;
   let payouts;
@@ -34,7 +38,7 @@ export async function getDriverAccounting(driverId, { session } = {}) {
         assignedDriverId: objectId,
         status: "COMPLETED",
       })
-        .select("pricing.totalFare")
+        .select("pricing.totalFare driverAmount")
         .lean(),
       session
     );
@@ -55,7 +59,7 @@ export async function getDriverAccounting(driverId, { session } = {}) {
 
   const earned = roundMoney(
     earnings.reduce(
-      (sum, booking) => sum + driverShareForFare(booking.pricing?.totalFare),
+      (sum, booking) => sum + (visibleOnly && booking.driverAmount == null ? 0 : driverEarningsForBooking(booking)),
       0
     )
   );
@@ -64,16 +68,19 @@ export async function getDriverAccounting(driverId, { session } = {}) {
   );
 
   return {
+    hasVisibleAmounts: earnings.some((booking) => booking.driverAmount != null),
     earned,
     paid,
-    balance: roundMoney(Math.max(0, earned - paid)),
+    // A partial list of agreed earnings cannot establish the driver's balance.
+    balance: visibleOnly && earnings.some((booking) => booking.driverAmount == null)
+      ? null : roundMoney(Math.max(0, earned - paid)),
   };
 }
 
 export async function getPlatformAccounting() {
   const [bookings, payouts] = await Promise.all([
     Booking.find({ status: "COMPLETED" })
-      .select("pricing.totalFare assignedDriverId")
+      .select("pricing.totalFare assignedDriverId driverAmount")
       .lean(),
     Payout.find({ status: "PAID" }).select("amount").lean(),
   ]);
@@ -87,7 +94,7 @@ export async function getPlatformAccounting() {
   const driverEarnings = roundMoney(
     bookings.reduce(
       (sum, booking) =>
-        sum + driverShareForFare(booking.pricing?.totalFare),
+        sum + driverEarningsForBooking(booking),
       0
     )
   );
@@ -97,7 +104,7 @@ export async function getPlatformAccounting() {
         sum +
         (booking.assignedDriverId
           ? 0
-          : driverShareForFare(booking.pricing?.totalFare)),
+          : driverEarningsForBooking(booking)),
       0
     )
   );
@@ -115,14 +122,15 @@ export async function getPlatformAccounting() {
   };
 }
 
-export async function buildDriverLedger(driverId) {
+export async function buildDriverLedger(driverId, { visibleOnly = false } = {}) {
   const objectId = new mongoose.Types.ObjectId(driverId);
   const [bookings, payouts] = await Promise.all([
     Booking.find({
       assignedDriverId: objectId,
       status: "COMPLETED",
+      ...(visibleOnly ? { driverAmount: { $ne: null } } : {}),
     })
-      .select("pricing.totalFare completedAt updatedAt")
+      .select("pricing.totalFare driverAmount completedAt updatedAt")
       .lean(),
     Payout.find({ driverId: objectId, status: "PAID" }).lean(),
   ]);
@@ -131,10 +139,10 @@ export async function buildDriverLedger(driverId) {
     ...bookings.map((booking) => ({
       _id: `booking-${booking._id}`,
       type: "CREDIT",
-      amount: driverShareForFare(booking.pricing?.totalFare),
+      amount: driverEarningsForBooking(booking),
       referenceType: "BOOKING",
       referenceId: booking._id,
-      note: "80% booking earnings",
+      note: booking.driverAmount != null ? "Agreed booking amount" : "80% booking earnings",
       createdAt: booking.completedAt || booking.updatedAt,
     })),
     ...payouts.map((payout) => ({

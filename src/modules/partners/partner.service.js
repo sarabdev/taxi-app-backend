@@ -6,6 +6,8 @@ import { roundMoney } from "../accounting/accounting.service.js";
 import { getSettings } from "../settings/settings.service.js";
 import { sendMail } from "../../utils/mailer.js";
 import { partnerApprovedEmail } from "../../emails/partnerApproved.js";
+import { partnerDashboardLink } from "../../utils/accessLinks.js";
+import { queueEmail } from "../notifications/notification.service.js";
 
 // Unambiguous characters only (no 0/O, 1/I/L) so codes survive being read aloud
 // or typed from a printed card.
@@ -152,8 +154,11 @@ export async function sendPartnerLinkEmail(partner) {
   const email = partnerApprovedEmail({
     partner,
     link: referralLink(partner.referralCode),
+    dashboardLink: partnerDashboardLink(partner),
   });
-  return sendMail({ to: partner.email, subject: email.subject, html: email.html });
+  const result = await sendMail({ to: partner.email, subject: email.subject, html: email.html });
+  if (!result.sent) await queueEmail(`partner:${partner._id}:welcome:${Date.now()}`, partner.email, email);
+  return result;
 }
 
 /** An approved partner for a referral code, or null. Never throws for bad input. */

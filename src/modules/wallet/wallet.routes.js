@@ -15,13 +15,13 @@ walletRouter.get(
   requireRole("DRIVER"),
   async (req, res) => {
     const driver = await Driver.findOne({ userId: req.user.id });
-    if (!driver) return res.json({ balance: 0, transactions: [] });
+    if (!driver) return res.json({ balance: null, transactions: [] });
 
     const [accounting, transactions] = await Promise.all([
-      getDriverAccounting(driver._id),
-      buildDriverLedger(driver._id),
+      getDriverAccounting(driver._id, { visibleOnly: true }),
+      buildDriverLedger(driver._id, { visibleOnly: true }),
     ]);
 
-    res.json({ balance: accounting.balance, transactions });
+    res.json({ balance: accounting.hasVisibleAmounts ? accounting.balance : null, transactions });
   }
 );

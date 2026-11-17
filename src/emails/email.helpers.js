@@ -41,7 +41,7 @@ export function emailLayout({ title, preheader = "", content }) {
                   Zalt
                 </div>
                 <div style="margin-top:5px;font-family:Arial,sans-serif;font-size:11px;line-height:16px;color:#94a3b8;text-transform:uppercase;letter-spacing:1.8px;">
-                  Premium Airport Transfers
+                  Airport Transfers
                 </div>
               </td>
             </tr>
@@ -134,7 +134,7 @@ function extraItemLabel(value) {
 }
 
 /** The same confirmed-booking summary shown to the customer after payment. */
-export function fullBookingDetails(booking) {
+export function fullBookingDetails(booking, { showFare = true } = {}) {
   const luggage = booking.luggage || {};
   const flight = booking.flight || {};
   const carName = booking.carId?.name || booking.carId || "—";
@@ -187,7 +187,7 @@ export function fullBookingDetails(booking) {
       ...(flight.meetAndGreet
         ? [detailRow("Meet & Greet", "Service included")]
         : []),
-      detailRow("Total paid", `<span style="font-size:17px;">${formatMoney(booking.pricing?.totalFare)}</span>`),
+      ...(showFare ? [detailRow("Total paid", `<span style="font-size:17px;">${formatMoney(booking.pricing?.totalFare)}</span>`)] : []),
     ]),
   ].join("");
 }

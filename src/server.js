@@ -2,11 +2,14 @@ import { createApp } from "./app.js";
 import { connectDB } from "./config/db.js";
 import { env } from "./config/env.js";
 import { seedAdmin } from "./seed/admin.seeder.js";
+import { startEmailDelivery } from "./modules/notifications/notification.service.js";
+import { recoverBookingNotifications } from "./modules/bookings/booking.notifications.js";
 
 async function bootstrap() {
   await connectDB();
   await seedAdmin()
   const app = createApp();
+  startEmailDelivery({ recover: recoverBookingNotifications });
   app.listen(env.PORT, () => console.log(`🚀 API running on :${env.PORT}`));
 }
 

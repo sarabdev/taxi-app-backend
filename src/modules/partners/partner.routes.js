@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { auth } from "../../middleware/auth.js";
 import { requireRole } from "../../middleware/requireRole.js";
+import { requestDashboardLink, partnerDashboard } from "./partner.dashboard.js";
 import {
   applyAsPartner,
   approve,
@@ -19,6 +20,8 @@ export const partnerRouter = Router();
 // Public (customer website)
 partnerRouter.post("/apply", applyAsPartner);
 partnerRouter.get("/referral/:code", getReferral);
+partnerRouter.post("/dashboard-link", requestDashboardLink);
+partnerRouter.get("/dashboard", partnerDashboard);
 
 // Admin
 const admin = [auth, requireRole("ADMIN")];

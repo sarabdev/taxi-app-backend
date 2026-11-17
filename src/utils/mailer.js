@@ -6,6 +6,9 @@ const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: smtpPort,
   secure: smtpPort === 465,
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 60000,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
@@ -26,6 +29,10 @@ export async function sendMail({ to, subject, html, replyTo }) {
       html,
       replyTo,
     });
+    if (info.rejected?.length || !info.accepted?.length) {
+      console.error("SMTP did not accept every recipient");
+      return { sent: false };
+    }
     return { sent: true, messageId: info.messageId };
   } catch (err) {
     console.error("Email failed:", err.message);

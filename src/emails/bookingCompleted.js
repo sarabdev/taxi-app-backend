@@ -5,7 +5,7 @@ import {
   formatMoney,
 } from "./email.helpers.js";
 
-export function bookingCompletedEmail({ booking, driverShare }) {
+export function bookingCompletedEmail({ booking }) {
   const title = "Booking completed";
 
   return {
@@ -16,11 +16,8 @@ export function bookingCompletedEmail({ booking, driverShare }) {
       content: `
       <p style="margin:0 0 14px;">The booking has been completed successfully.</p>
       <p style="margin:0 0 14px;"><b style="color:#0f172a;">Booking reference:</b> ${bookingReference(booking)}</p>
-      ${fullBookingDetails(booking)}
-      <div style="margin-top:18px;padding:18px;background:#fffbeb;border:1px solid #fde68a;border-radius:14px;">
-        <p style="margin:0 0 8px;"><b style="color:#0f172a;">Total fare:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
-        <p style="margin:0;"><b style="color:#0f172a;">Your earnings (80%):</b> ${formatMoney(driverShare)}</p>
-      </div>
+      ${fullBookingDetails(booking, { showFare: false })}
+      ${booking.driverAmount != null ? `<p><b>Your agreed amount:</b> ${formatMoney(booking.driverAmount)}</p>` : ""}
       `,
     }),
   };

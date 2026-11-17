@@ -1,6 +1,6 @@
 import { emailLayout, escapeHtml } from "./email.helpers.js";
 
-export function partnerApprovedEmail({ partner, link }) {
+export function partnerApprovedEmail({ partner, link, dashboardLink }) {
   const title = "Your partner link is ready.";
   const safeLink = escapeHtml(link);
   const commission =
@@ -23,6 +23,7 @@ export function partnerApprovedEmail({ partner, link }) {
         <p style="margin:0;font-size:13px;color:#64748b;">Referral code: <b style="color:#0f172a;">${escapeHtml(partner.referralCode)}</b></p>
       </div>
       <a href="${safeLink}" style="display:inline-block;padding:12px 22px;background:#0f172a;color:#ffffff;border-radius:12px;font-weight:700;text-decoration:none;">Open your partner link</a>
+      ${dashboardLink ? `<p><a href="${escapeHtml(dashboardLink)}" style="font-weight:700;color:#0f172a;">View dashboard</a></p><p>Your dashboard shows only your earnings and ride statuses. This private link expires in 7 days; request a fresh link from the partner dashboard page.</p>` : ""}
       <p style="margin:22px 0 0;">If you have any questions, just reply to this email.</p>
       `,
     }),

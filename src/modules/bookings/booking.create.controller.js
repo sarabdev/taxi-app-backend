@@ -1,15 +1,12 @@
 import Stripe from "stripe";
 import { Booking } from "./booking.model.js";
-import { sendMail } from "../../utils/mailer.js";
-import { bookingConfirmedEmail } from "../../emails/bookingConfirmed.js";
-import { adminBookingConfirmedEmail } from "../../emails/adminBookingConfirmed.js";
+import { queueBookingNotifications } from "./booking.notifications.js";
 import { pricingSnapshotMatchesTotal } from "../pricing/pricing.service.js";
 import { MAX_STOPS } from "../pricing/distance.service.js";
 import { resolveBookingPartner } from "../partners/partner.service.js";
 import { generateCompletionCode } from "./completionCode.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-const BOOKING_ADMIN_EMAIL = ["myairporttaxi86@gmail.com", "booking@zalt.uk"];
 
 function metadataNumber(metadata, key) {
   const value = Number(metadata[key] || 0);
@@ -127,8 +124,9 @@ export async function createBooking(req, res) {
       return res.status(400).json({ message: "Missing customer information" });
     }
 
-    const existingBooking = await Booking.findOne({ paymentIntentId });
+    const existingBooking = await Booking.findOne({ paymentIntentId }).select("+completionCode").populate("carId");
     if (existingBooking) {
+      await queueBookingNotifications(existingBooking, "confirmed");
       return res.json({ booking: existingBooking });
     }
 
@@ -192,6 +190,7 @@ export async function createBooking(req, res) {
       pricing,
       partner,
       completionCode: generateCompletionCode(),
+      notificationPending: { confirmed: true },
     });
 
     // The customer's own response and confirmation email carry the job-end code.
@@ -199,25 +198,7 @@ export async function createBooking(req, res) {
       .select("+completionCode")
       .populate("carId");
 
-    const customerConfirmation = bookingConfirmedEmail({ booking });
-    const deliveries = [
-      sendMail({
-        to: booking.customerEmail,
-        subject: customerConfirmation.subject,
-        html: customerConfirmation.html,
-      }),
-    ];
-
-    const adminConfirmation = adminBookingConfirmedEmail({ booking });
-    deliveries.push(
-      sendMail({
-        to: BOOKING_ADMIN_EMAIL,
-        subject: adminConfirmation.subject,
-        html: adminConfirmation.html,
-      })
-    );
-
-    await Promise.all(deliveries);
+    await queueBookingNotifications(booking, "confirmed");
 
     res.json({ booking });
   } catch (error) {

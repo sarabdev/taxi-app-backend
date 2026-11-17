@@ -1,15 +1,11 @@
 import { Booking } from "./booking.model.js";
 import { Driver } from "../drivers/driver.model.js";
 import { logActivity } from "../activity/activity.service.js";
-import { sendMail } from "../../utils/mailer.js";
-import { driverAssignedEmail } from "../../emails/driverAssigned.js";
-import { bookingCompletedEmail } from "../../emails/bookingCompleted.js";
-import { customerBookingCompletedEmail } from "../../emails/customerBookingCompleted.js";
-import { adminBookingCompletedEmail } from "../../emails/adminBookingCompleted.js";
-import {
-  driverShareForFare,
-  platformShareForFare,
-} from "../accounting/accounting.service.js";
+import { randomBytes } from "node:crypto";
+import mongoose from "mongoose";
+import { verifyAccessLink } from "../../utils/accessLinks.js";
+import { driverBooking, parseDriverAmount } from "./driverBooking.js";
+import { bookingEmailPopulation, queueBookingNotifications } from "./booking.notifications.js";
 import {
   MAX_COMPLETION_CODE_ATTEMPTS,
   completionCodeMatches,
@@ -21,22 +17,18 @@ const BOOKING_STATUSES = new Set([
   "COMPLETED",
   "CANCELLED",
 ]);
-const BOOKING_ADMIN_EMAIL = ["myairporttaxi86@gmail.com", "booking@zalt.uk"];
-
 function populatedBooking(id) {
   return Booking.findById(id)
-    .populate("carId")
-    .populate({
-      path: "assignedDriverId",
-      populate: { path: "userId", select: "email role" },
-    });
+    .select("+completionCode +notificationPending +driverAccessNonce")
+    .populate(bookingEmailPopulation);
 }
 
 /** Partner commission is internal, so it is removed from responses to drivers. */
 function bookingForRole(booking, role) {
-  if (role !== "DRIVER" || !booking) return booking;
-  const { partner: _partner, ...rest } = booking.toObject ? booking.toObject() : booking;
-  return rest;
+  if (!booking) return booking;
+  if (role === "DRIVER") return driverBooking(booking);
+  const { driverAccessNonce, notificationPending, ...visible } = booking.toObject ? booking.toObject() : booking;
+  return visible;
 }
 
 /** Admin: list all bookings. */
@@ -54,15 +46,21 @@ export async function listBookings(req, res) {
 /** Admin: assign a driver to a non-completed booking. */
 export async function assignDriver(req, res) {
   const { driverId } = req.body;
-  const driver = await Driver.findById(driverId).populate("userId", "email");
+  if (!mongoose.isValidObjectId(driverId) || !mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid booking or driver" });
+  let driverAmount;
+  try { driverAmount = parseDriverAmount(req.body.driverAmount); }
+  catch (error) { return res.status(400).json({ message: error.message }); }
+  const driver = await Driver.findById(driverId).populate("userId", "email isActive");
 
-  if (!driver) {
+  if (!driver || driver.isActive === false) {
     return res.status(404).json({ message: "Driver not found" });
   }
+  if (!driver.userId?.email || driver.userId.isActive === false) return res.status(400).json({ message: "This driver needs an active account with an email address before assignment" });
 
+  const nonce = randomBytes(24).toString("hex");
   let booking = await Booking.findOneAndUpdate(
-    { _id: req.params.id, status: { $ne: "COMPLETED" } },
-    { $set: { assignedDriverId: driver._id, status: "ASSIGNED" } },
+    { _id: req.params.id, status: { $in: ["PENDING", "ASSIGNED"] } },
+    { $set: { assignedDriverId: driver._id, status: "ASSIGNED", driverAmount, driverAccessNonce: nonce, "notificationPending.assignment": nonce } },
     { new: true, runValidators: true }
   );
 
@@ -70,7 +68,7 @@ export async function assignDriver(req, res) {
     const exists = await Booking.exists({ _id: req.params.id });
     return res.status(exists ? 409 : 404).json({
       message: exists
-        ? "A completed booking cannot be reassigned"
+        ? "Only pending or assigned bookings can be assigned"
         : "Booking not found",
     });
   }
@@ -88,22 +86,12 @@ export async function assignDriver(req, res) {
     console.error("Assignment activity log failed:", error);
   }
 
-  booking = await populatedBooking(booking._id);
+  // Populate the document returned by this atomic assignment. Re-reading it
+  // could pick up a different driver's amount during concurrent reassignment.
+  booking = await Booking.populate(booking, bookingEmailPopulation);
+  await queueBookingNotifications(booking, "assignment", nonce);
 
-  if (driver.userId?.email) {
-    const email = driverAssignedEmail({ booking });
-    try {
-      await sendMail({
-        to: driver.userId.email,
-        subject: email.subject,
-        html: email.html,
-      });
-    } catch (error) {
-      console.error("Driver assignment email failed:", error);
-    }
-  }
-
-  res.json(booking);
+  res.json(bookingForRole(booking, "ADMIN"));
 }
 
 /**
@@ -111,7 +99,8 @@ export async function assignDriver(req, res) {
  * COMPLETED is terminal because it recognizes revenue and driver earnings.
  */
 export async function updateStatus(req, res) {
-  const { status, note, completionCode } = req.body;
+  const { status, completionCode } = req.body;
+  const note = typeof req.body.note === "string" ? req.body.note.slice(0, 2000) : "";
   if (!BOOKING_STATUSES.has(status)) {
     return res.status(400).json({ message: "Invalid booking status" });
   }
@@ -125,15 +114,23 @@ export async function updateStatus(req, res) {
     if (current.assignedDriverId?.userId?._id?.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not your booking" });
     }
+    if (current.assignedDriverId.isActive === false || current.assignedDriverId.userId?.isActive === false ||
+        (req.driverAccessNonce && req.driverAccessNonce !== current.driverAccessNonce)) {
+      return res.status(403).json({ message: "This driver assignment is no longer active" });
+    }
     if (status !== "COMPLETED") {
       return res
         .status(403)
         .json({ message: "Drivers can only complete bookings" });
     }
+    if (!["ASSIGNED", "COMPLETED"].includes(current.status)) return res.status(409).json({ message: "Only an assigned ride can be completed" });
   }
 
   if (current.status === "COMPLETED") {
-    if (status === "COMPLETED") return res.json(bookingForRole(current, req.user.role));
+    if (status === "COMPLETED") {
+      if (current.notificationPending?.completed) await queueBookingNotifications(current, "completed");
+      return res.json(bookingForRole(current, req.user.role));
+    }
     return res.status(409).json({
       message: "Completed bookings are locked and cannot change status",
     });
@@ -195,6 +192,7 @@ export async function updateStatus(req, res) {
     status,
     completionNote: status === "COMPLETED" ? note || "" : "",
     completedAt: status === "COMPLETED" ? new Date() : null,
+    ...(status === "COMPLETED" ? { "notificationPending.completed": true } : {}),
   };
 
   let booking = await Booking.findOneAndUpdate(
@@ -202,6 +200,7 @@ export async function updateStatus(req, res) {
       _id: current._id,
       status: current.status,
       assignedDriverId: current.assignedDriverId?._id || null,
+      ...(req.driverAccessNonce ? { driverAccessNonce: req.driverAccessNonce } : {}),
     },
     { $set: update },
     { new: true, runValidators: true }
@@ -209,7 +208,12 @@ export async function updateStatus(req, res) {
 
   if (!booking) {
     booking = await populatedBooking(current._id);
+    if (req.user.role === "DRIVER" && (booking?.assignedDriverId?.userId?._id?.toString() !== req.user.id ||
+        (req.driverAccessNonce && req.driverAccessNonce !== booking?.driverAccessNonce))) {
+      return res.status(403).json({ message: "This driver assignment is no longer active" });
+    }
     if (booking?.status === "COMPLETED" && status === "COMPLETED") {
+      if (booking.notificationPending?.completed) await queueBookingNotifications(booking, "completed");
       return res.json(bookingForRole(booking, req.user.role));
     }
     return res.status(409).json({
@@ -231,49 +235,36 @@ export async function updateStatus(req, res) {
   }
 
   if (status === "COMPLETED") {
-    booking = await populatedBooking(booking._id);
-    const driverShare = driverShareForFare(booking.pricing?.totalFare);
-    const platformShare = platformShareForFare(booking.pricing?.totalFare);
-    const driverEmail = booking.assignedDriverId?.userId?.email;
-    const emails = [];
-
-    if (driverEmail) {
-      const email = bookingCompletedEmail({ booking, driverShare });
-      emails.push(
-        sendMail({
-          to: driverEmail,
-          subject: email.subject,
-          html: email.html,
-        })
-      );
-    }
-
-    if (booking.customerEmail) {
-      const email = customerBookingCompletedEmail({ booking });
-      emails.push(
-        sendMail({
-          to: booking.customerEmail,
-          subject: email.subject,
-          html: email.html,
-        })
-      );
-    }
-
-    const adminEmail = adminBookingCompletedEmail({
-      booking,
-      driverShare,
-      platformShare,
-    });
-    emails.push(
-      sendMail({
-        to: BOOKING_ADMIN_EMAIL,
-        subject: adminEmail.subject,
-        html: adminEmail.html,
-      })
-    );
-
-    await Promise.all(emails);
+    booking = await Booking.populate(booking, bookingEmailPopulation);
+    await queueBookingNotifications(booking, "completed");
   }
 
   res.json(bookingForRole(booking, req.user.role));
+}
+
+// A private email link grants access only to this ride and its current driver.
+export async function driverLinkAuth(req, res, next) {
+  res.set("Cache-Control", "no-store");
+  let claims;
+  try { claims = verifyAccessLink(String(req.headers.authorization || "").replace(/^Bearer /, ""), "driver-completion"); }
+  catch { return res.status(401).json({ message: "Invalid or expired ride link. Contact the office for a new assignment email." }); }
+  if (!mongoose.isValidObjectId(claims.sub)) return res.status(401).json({ message: "Invalid ride link" });
+  const booking = await Booking.findById(claims.sub).select("+driverAccessNonce +completionCode").populate("carId");
+  if (!booking || String(booking.assignedDriverId) !== claims.driverId || !booking.driverAccessNonce || booking.driverAccessNonce !== claims.nonce) {
+    return res.status(401).json({ message: "This ride link is no longer active. Contact the office." });
+  }
+  const driver = await Driver.findById(claims.driverId).populate("userId", "email isActive");
+  if (!driver?.userId || driver.isActive === false || driver.userId.isActive === false) return res.status(403).json({ message: "Driver access is unavailable" });
+  req.user = { id: String(driver.userId._id), role: "DRIVER" };
+  req.params.id = String(booking._id);
+  req.driverAccessNonce = claims.nonce;
+  req.linkBooking = booking;
+  next();
+}
+
+export function getDriverLinkBooking(req, res) { res.json(driverBooking(req.linkBooking)); }
+
+export function completeViaDriverLink(req, res) {
+  req.body = { status: "COMPLETED", completionCode: req.body.completionCode, note: req.body.note };
+  return updateStatus(req, res);
 }

@@ -52,6 +52,7 @@ const PartnerSchema = new mongoose.Schema(
     adminNotes: { type: String, trim: true, maxlength: 2000, default: "" },
 
     approvedAt: { type: Date, default: null },
+    dashboardEmailRequestedAt: { type: Date, default: null, select: false },
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

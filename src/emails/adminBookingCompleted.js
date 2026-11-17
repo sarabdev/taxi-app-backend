@@ -24,7 +24,7 @@ export function adminBookingCompletedEmail({
       ${fullBookingDetails(booking)}
       <div style="margin-top:18px;padding:18px;background:#fffbeb;border:1px solid #fde68a;border-radius:14px;">
         <p style="margin:0 0 8px;"><b style="color:#0f172a;">Total fare:</b> ${formatMoney(booking.pricing?.totalFare)}</p>
-        <p style="margin:0 0 8px;"><b style="color:#0f172a;">Driver earnings (80%):</b> ${formatMoney(driverShare)}</p>
+        <p style="margin:0 0 8px;"><b style="color:#0f172a;">Driver earnings:</b> ${formatMoney(driverShare)}</p>
         <p style="margin:0;"><b style="color:#0f172a;">Platform share (20%):</b> ${formatMoney(platformShare)}</p>
       </div>
       `,

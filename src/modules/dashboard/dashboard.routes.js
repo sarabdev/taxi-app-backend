@@ -108,12 +108,13 @@ dashboardRouter.get(
         }),
       ]);
 
-      const accounting = await getDriverAccounting(driver._id);
+      const accounting = await getDriverAccounting(driver._id, { visibleOnly: true });
 
       res.json({
         assignedBookings,
         completedBookings,
         bookingsToday,
+        hasVisibleAmounts: accounting.hasVisibleAmounts,
         totalEarned: accounting.earned,
         totalPaid: accounting.paid,
         balance: accounting.balance,

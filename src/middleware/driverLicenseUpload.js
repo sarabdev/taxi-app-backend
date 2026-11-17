@@ -1,5 +1,4 @@
 import multer from "multer";
-import path from "path";
 import fs from "fs";
 
 const uploadDir = "uploads/drivers";
@@ -14,7 +13,7 @@ const storage = multer.diskStorage({
   },
 
   filename: (_, file, cb) => {
-    const ext = path.extname(file.originalname);
+    const ext = { "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg" }[file.mimetype];
 
     cb(
       null,

@@ -86,16 +86,23 @@ test("customer and admin confirmations contain the complete booking snapshot", (
   }
 });
 
-test("driver assignment contains the journey and total fare", () => {
-  const email = driverAssignedEmail({ booking });
+test("driver assignment includes the completion link and hides the customer fare", () => {
+  const email = driverAssignedEmail({ booking, completionLink: "https://zalt.uk/driver/complete#token=test" });
   assert.match(email.subject, /99439011/);
   assert.match(email.html, /Airport/);
-  assert.match(email.html, /&pound;50\.00/);
+  assert.doesNotMatch(email.html, /&pound;50\.00|Total paid|80%/);
+  assert.match(email.html, /driver\/complete#token=test/);
+  assert.match(email.html, /job-end code/);
 });
 
-test("driver completion contains the 80% earning", () => {
+test("driver completion hides automatic earnings and only shows an agreed amount", () => {
   const email = bookingCompletedEmail({ booking, driverShare: 40 });
-  assert.match(email.html, /&pound;40\.00/);
+  assert.doesNotMatch(email.html, /&pound;40\.00|&pound;50\.00|80%|Total paid/);
+  for (const template of [bookingCompletedEmail, driverAssignedEmail]) {
+    const agreed = template({ booking: { ...booking, driverAmount: 27.5 } });
+    assert.match(agreed.html, /&pound;27\.50/);
+    assert.doesNotMatch(agreed.html, /&pound;50\.00|80%|Total paid/);
+  }
 });
 
 test("customer completion contains the journey and paid total", () => {
@@ -103,6 +110,9 @@ test("customer completion contains the journey and paid total", () => {
   assert.match(email.subject, /99439011/);
   assert.match(email.html, /Airport/);
   assert.match(email.html, /&pound;50\.00/);
+  assert.match(email.html, /two more rides/);
+  assert.match(email.html, /discount in pounds/);
+  assert.doesNotMatch(email.html, /discount of|£\d/);
 });
 
 test("admin completion contains driver and platform shares", () => {
